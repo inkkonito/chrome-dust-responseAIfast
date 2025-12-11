@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Query History - Dust AI Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="katex.min.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    .history-page-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .history-page-header {
+      padding: 25px 30px;
+      background-color: #3498db;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .history-page-header h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 600;
+      color: white;
+    }
+
+    .history-page-header .btn-secondary {
+      background-color: white;
+      color: #3498db;
+    }
+
+    .history-controls {
+      padding: 20px 30px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 250px;
+      position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 10px 15px 10px 40px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #7f8c8d;
+    }
+
+    .filter-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    .history-stats {
+      padding: 15px 30px;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      color: #7f8c8d;
+    }
+
+    .history-table-container {
+      overflow-x: auto;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .history-table thead {
+      background-color: #f8f9fa;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .history-table th {
+      padding: 15px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 13px;
+      color: #2c3e50;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .history-table tbody tr {
+      border-bottom: 1px solid #f0f0f0;
+      transition: background-color 0.2s;
+    }
+
+    .history-table tbody tr:hover {
+      background-color: #f8f9fa;
+    }
+
+    .history-table td {
+      padding: 15px;
+      font-size: 14px;
+      color: #2c3e50;
+      vertical-align: top;
+    }
+
+    .history-table .time-cell {
+      white-space: nowrap;
+      width: 150px;
+    }
+
+    .history-table .time-absolute {
+      display: block;
+      font-size: 11px;
+      color: #7f8c8d;
+      margin-top: 3px;
+    }
+
+    .history-table .page-cell {
+      max-width: 200px;
+    }
+
+    .history-table .page-title {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 3px;
+    }
+
+    .history-table .page-url {
+      display: block;
+      font-size: 11px;
+      color: #3498db;
+      text-decoration: none;
+    }
+
+    .history-table .page-url:hover {
+      text-decoration: underline;
+    }
+
+    .history-table .query-cell {
+      max-width: 300px;
+    }
+
+    .history-table .answer-cell {
+      max-width: 350px;
+    }
+
+    .history-table .truncated-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      line-height: 1.4;
+    }
+
+    .history-table .actions-cell {
+      white-space: nowrap;
+      width: 180px;
+    }
+
+    .table-action-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      border: 1px solid #d5dbdd;
+      background-color: white;
+      color: #2c3e50;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-right: 5px;
+      margin-bottom: 5px;
+    }
+
+    .table-action-btn:hover {
+      background-color: #ecf0f1;
+      border-color: #bdc3c7;
+    }
+
+    .table-action-btn.delete-btn:hover {
+      background-color: #e74c3c;
+      border-color: #c0392b;
+      color: white;
+    }
+
+    .empty-history {
+      text-align: center;
+      padding: 60px 20px;
+      color: #7f8c8d;
+    }
+
+    .empty-history .empty-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    /* Modal Styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      animation: fadeIn 0.2s;
+    }
+
+    .modal.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .modal-content {
+      background-color: white;
+      border-radius: 8px;
+      max-width: 800px;
+      max-height: 90vh;
+      width: 90%;
+      display: flex;
+      flex-direction: column;
+      animation: slideUp 0.3s;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .modal-header {
+      padding: 20px 25px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: #7f8c8d;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+    }
+
+    .modal-body {
+      padding: 25px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .modal-footer {
+      padding: 15px 25px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+  </style>
+</head>
+<body>
+  <div class="history-page-container">
+    <!-- Header -->
+    <div class="history-page-header">
+      <h1>📚 Query History</h1>
+      <button id="backBtn" class="btn btn-secondary">← Back</button>
+    </div>
+
+    <!-- Controls -->
+    <div class="history-controls">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search queries and answers...">
+      </div>
+      <div class="filter-group">
+        <select id="agentFilter" class="btn btn-secondary">
+          <option value="">All Agents</option>
+        </select>
+        <button id="exportBtn" class="btn btn-secondary">💾 Export</button>
+        <button id="clearAllBtn" class="btn btn-secondary">🗑️ Clear All</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="history-stats">
+      <span id="statsText">Loading...</span>
+      <span id="filteredStats"></span>
+    </div>
+
+    <!-- Table -->
+    <div class="history-table-container">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Page</th>
+            <th>Query</th>
+            <th>Answer</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="historyTableBody">
+          <tr>
+            <td colspan="5" class="empty-history">
+              <div class="empty-icon">⏳</div>
+              <p>Loading history...</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Answer Modal -->
+  <div id="answerModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Full Answer</h2>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- Answer content will be inserted here -->
+      </div>
+      <div class="modal-footer">
+        <button id="modalCopyBtn" class="btn btn-secondary">📋 Copy</button>
+        <button id="modalCloseBtn" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="marked.min.js"></script>
+  <script src="katex.min.js"></script>
+  <script src="utils/formatting.js"></script>
+  <script src="history.js"></script>
+</body>
+</html>

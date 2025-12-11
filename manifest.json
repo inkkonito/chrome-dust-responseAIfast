@@ -4,16 +4,31 @@
   "version": "1.0.0",
   "description": "Chrome extension to test Dust API endpoints",
   "permissions": [
-    "storage"
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://dust.tt/*",
-    "https://eu.dust.tt/*"
+    "https://eu.dust.tt/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "marked.min.js",
+        "katex.min.js",
+        "katex.min.css",
+        "content.css"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
