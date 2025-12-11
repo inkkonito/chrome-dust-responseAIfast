@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Icon Generator - Dust API Tester</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+    }
+    h1 {
+      color: #333;
+    }
+    .instructions {
+      background-color: #e3f2fd;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+    .icons-container {
+      display: flex;
+      gap: 30px;
+      margin: 30px 0;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .icon-wrapper {
+      text-align: center;
+    }
+    canvas {
+      border: 1px solid #ddd;
+      display: block;
+      margin: 10px auto;
+    }
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Icon Generator for Dust API Tester</h1>
+
+    <div class="instructions">
+      <h3>Instructions:</h3>
+      <ol>
+        <li>The icons are generated automatically below</li>
+        <li>Right-click each icon and select "Save image as..."</li>
+        <li>Save as icon16.png, icon48.png, and icon128.png respectively</li>
+        <li>Place them in the extension root directory</li>
+      </ol>
+    </div>
+
+    <div class="icons-container">
+      <div class="icon-wrapper">
+        <h3>16x16</h3>
+        <canvas id="icon16" width="16" height="16"></canvas>
+        <button onclick="downloadIcon('icon16', 16)">Download</button>
+      </div>
+
+      <div class="icon-wrapper">
+        <h3>48x48</h3>
+        <canvas id="icon48" width="48" height="48"></canvas>
+        <button onclick="downloadIcon('icon48', 48)">Download</button>
+      </div>
+
+      <div class="icon-wrapper">
+        <h3>128x128</h3>
+        <canvas id="icon128" width="128" height="128"></canvas>
+        <button onclick="downloadIcon('icon128', 128)">Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function createIcon(canvasId, size) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+
+      // Background
+      ctx.fillStyle = '#3498db';
+      ctx.fillRect(0, 0, size, size);
+
+      // Letter "D" for Dust
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${size * 0.6}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('D', size / 2, size / 2);
+    }
+
+    function downloadIcon(canvasId, size) {
+      const canvas = document.getElementById(canvasId);
+      const link = document.createElement('a');
+      link.download = `icon${size}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+
+    // Generate icons on page load
+    createIcon('icon16', 16);
+    createIcon('icon48', 48);
+    createIcon('icon128', 128);
+  </script>
+</body>
+</html>

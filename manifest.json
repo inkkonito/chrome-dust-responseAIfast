@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Dust API Tester",
+  "version": "1.0.0",
+  "description": "Chrome extension to test Dust API endpoints",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://dust.tt/*",
+    "https://eu.dust.tt/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

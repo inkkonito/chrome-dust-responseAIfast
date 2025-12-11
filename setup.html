@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Setup - Dust API Tester</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Configuration</h1>
+    <form id="setupForm">
+      <!-- Basic Configuration Section -->
+      <div class="config-section-header">Basic Configuration</div>
+
+      <div class="form-group">
+        <label for="apiKey">API Key * <span style="color: #e74c3c;">(required)</span></label>
+        <input type="password" id="apiKey" placeholder="Enter your API key" required>
+        <small class="helper-text">Your Dust API authentication token</small>
+      </div>
+
+      <div class="form-group">
+        <label for="workspaceId">Workspace ID * <span style="color: #e74c3c;">(required)</span></label>
+        <input type="text" id="workspaceId" placeholder="Enter workspace ID" required>
+        <small class="helper-text">Format: your-workspace-identifier</small>
+      </div>
+
+      <div class="form-group">
+        <label for="agentId">Agent ID</label>
+        <input type="text" id="agentId" placeholder="Enter agent configuration ID (optional)">
+        <small class="helper-text">Leave empty if you don't want to trigger any agent</small>
+      </div>
+
+      <!-- Advanced Configuration Section -->
+      <div class="collapsible-section">
+        <button type="button" class="section-toggle" id="advancedToggle">
+          <span class="toggle-icon">▼</span>
+          <span>Show Advanced Options</span>
+        </button>
+        <div class="collapsible-content" id="advancedSection" style="display: none;">
+
+          <!-- User Context Subsection -->
+          <div class="field-subsection">
+            <div class="subsection-title">User Context</div>
+
+            <div class="form-group">
+              <label for="username">Username</label>
+              <input type="text" id="username" placeholder="Your unique username">
+              <small class="helper-text">Your username identifier (auto-generated if empty)</small>
+            </div>
+
+            <div class="form-group">
+              <label for="timezone">Timezone</label>
+              <input type="text" id="timezone" placeholder="America/New_York">
+              <small class="helper-text">Example: America/New_York, Europe/Paris, Asia/Tokyo (auto-detected if empty)</small>
+            </div>
+          </div>
+
+          <!-- Request Options Subsection -->
+          <div class="field-subsection">
+            <div class="subsection-title">Request Options</div>
+
+            <div class="form-group">
+              <label for="conversationTitle">Conversation Title</label>
+              <input type="text" id="conversationTitle" placeholder="Optional custom title">
+              <small class="helper-text">Custom title for conversations (leave empty for auto-generated)</small>
+            </div>
+
+            <div class="checkbox-group">
+              <input type="checkbox" id="skipToolsValidation">
+              <label for="skipToolsValidation">Skip Tools Validation</label>
+            </div>
+            <small class="helper-text" style="margin-left: 24px; margin-top: -10px; display: block;">Skip validation of agent tools before execution</small>
+
+            <div class="checkbox-group">
+              <input type="checkbox" id="blockingMode" checked>
+              <label for="blockingMode">Blocking Mode</label>
+            </div>
+            <small class="helper-text" style="margin-left: 24px; margin-top: -10px; display: block;">Wait for complete response before returning (recommended)</small>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Buttons and Message -->
+      <div class="button-group">
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+        <button type="button" id="backBtn" class="btn btn-secondary">Back</button>
+      </div>
+      <div id="message" class="message"></div>
+    </form>
+  </div>
+  <script src="setup.js"></script>
+</body>
+</html>
