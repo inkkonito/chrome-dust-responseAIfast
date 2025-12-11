@@ -8,6 +8,14 @@ document.addEventListener('DOMContentLoaded', function() {
   const loadingState = document.getElementById('loadingState');
   const emptyState = document.getElementById('emptyState');
   const statusMessage = document.getElementById('statusMessage');
+  const answerModal = document.getElementById('answerModal');
+  const modalClose = document.getElementById('modalClose');
+  const modalCloseBtn = document.getElementById('modalCloseBtn');
+  const modalCopyBtn = document.getElementById('modalCopyBtn');
+  const modalBody = document.getElementById('modalBody');
+
+  // State
+  let currentModalAnswer = '';
 
   // Load history on popup open
   loadHistory();
@@ -17,6 +25,18 @@ document.addEventListener('DOMContentLoaded', function() {
   settingsBtn.addEventListener('click', () => chrome.tabs.create({ url: 'setup.html' }));
   refreshBtn.addEventListener('click', loadHistory);
   viewAllBtn.addEventListener('click', () => chrome.tabs.create({ url: 'history.html' }));
+
+  // Modal event listeners
+  modalClose.addEventListener('click', closeModal);
+  modalCloseBtn.addEventListener('click', closeModal);
+  modalCopyBtn.addEventListener('click', copyModalAnswer);
+
+  // Close modal on background click
+  answerModal.addEventListener('click', (e) => {
+    if (e.target === answerModal) {
+      closeModal();
+    }
+  });
 
   // Listen for history updates
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -167,12 +187,14 @@ document.addEventListener('DOMContentLoaded', function() {
       <div class="history-item-actions">
         <button class="history-action-btn copy-btn" data-id="${entry.id}">📋 Copy</button>
         <button class="history-action-btn view-btn" data-id="${entry.id}">👁️ View</button>
+        <button class="history-action-btn delete-btn" data-id="${entry.id}">🗑️ Delete</button>
       </div>
     `;
 
     // Add event listeners
     const copyBtn = item.querySelector('.copy-btn');
     const viewBtn = item.querySelector('.view-btn');
+    const deleteBtn = item.querySelector('.delete-btn');
 
     copyBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -182,6 +204,11 @@ document.addEventListener('DOMContentLoaded', function() {
     viewBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       viewFullEntry(entry.id);
+    });
+
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteEntry(entry.id);
     });
 
     return item;
@@ -213,10 +240,75 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   /**
-   * View full entry in history page
+   * View entry in modal
    */
-  function viewFullEntry(entryId) {
-    chrome.tabs.create({ url: `history.html?id=${entryId}` });
+  async function viewFullEntry(entryId) {
+    try {
+      // Find entry in current history data
+      const response = await chrome.runtime.sendMessage({ action: 'getHistory' });
+
+      if (!response.success) {
+        showStatus('Failed to load entry', 'error');
+        return;
+      }
+
+      const entry = response.data.find(e => e.id === entryId);
+
+      if (!entry || !entry.answer) {
+        showStatus('No answer available', 'error');
+        return;
+      }
+
+      // Remove citation markers
+      const cleanAnswer = entry.answer
+        .replace(/:cite\[[^\]]+\]/g, '')
+        .replace(/\[:cite:[^\]]+\]/g, '');
+
+      currentModalAnswer = cleanAnswer;
+
+      // Get structured links from history entry (stored in links field)
+      const structuredLinks = entry.links || [];
+
+      // Get workspace ID from config
+      const config = await chrome.storage.sync.get(['workspaceId']);
+      const openInDustButton = createOpenInDustButton(config.workspaceId, entry.conversationId);
+
+      // Render markdown with LaTeX
+      try {
+        let html = '';
+
+        if (typeof marked !== 'undefined' && marked.parse) {
+          html = marked.parse(cleanAnswer);
+        } else if (typeof marked !== 'undefined') {
+          html = marked(cleanAnswer);
+        } else {
+          html = `<pre>${escapeHtml(cleanAnswer)}</pre>`;
+        }
+
+        // Add links section using STRUCTURED links
+        const linksSection = Formatting.createLinksSection(structuredLinks);
+
+        modalBody.innerHTML = `<div class="response-content">${html}${linksSection}${openInDustButton}</div>`;
+
+        // Add copy event listener to preserve link HTML when copying
+        modalBody.removeEventListener('copy', handleCopyWithLinks);
+        modalBody.addEventListener('copy', handleCopyWithLinks);
+
+        // Render math if KaTeX is available
+        if (typeof katex !== 'undefined') {
+          renderMath(modalBody);
+        }
+      } catch (e) {
+        console.error('Error rendering markdown:', e);
+        modalBody.innerHTML = `<div class="response-content">${escapeHtml(cleanAnswer)}</div>`;
+      }
+
+      // Show modal
+      answerModal.classList.add('active');
+    } catch (error) {
+      console.error('Error viewing entry:', error);
+      showStatus('Failed to view entry', 'error');
+    }
   }
 
   /**
@@ -230,6 +322,148 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => {
       statusMessage.style.display = 'none';
     }, 3000);
+  }
+
+  /**
+   * Close modal
+   */
+  function closeModal() {
+    answerModal.classList.remove('active');
+    currentModalAnswer = '';
+  }
+
+  /**
+   * Copy modal answer
+   */
+  async function copyModalAnswer() {
+    if (!currentModalAnswer) return;
+
+    try {
+      await navigator.clipboard.writeText(currentModalAnswer);
+
+      const originalText = modalCopyBtn.textContent;
+      modalCopyBtn.textContent = '✓ Copied!';
+      modalCopyBtn.disabled = true;
+
+      setTimeout(() => {
+        modalCopyBtn.textContent = originalText;
+        modalCopyBtn.disabled = false;
+      }, 2000);
+    } catch (error) {
+      console.error('Error copying:', error);
+      showStatus('Failed to copy', 'error');
+    }
+  }
+
+  /**
+   * Delete single entry
+   */
+  async function deleteEntry(entryId) {
+    if (!confirm('Are you sure you want to delete this entry?')) {
+      return;
+    }
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'deleteHistoryEntry',
+        id: entryId
+      });
+
+      if (response.success) {
+        // Reload history
+        await loadHistory();
+        showStatus('Entry deleted', 'success');
+      } else {
+        throw new Error('Failed to delete entry');
+      }
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      showStatus('Failed to delete entry', 'error');
+    }
+  }
+
+  /**
+   * Render LaTeX math formulas
+   */
+  function renderMath(element) {
+    if (!element || typeof katex === 'undefined') return;
+
+    let html = element.innerHTML;
+
+    // Replace display math $$ ... $$
+    html = html.replace(/\$\$([^\$]+)\$\$/g, function(match, math) {
+      try {
+        return katex.renderToString(math.trim(), { displayMode: true, throwOnError: false });
+      } catch (e) {
+        console.error('KaTeX error:', e);
+        return match;
+      }
+    });
+
+    // Replace inline math $ ... $
+    html = html.replace(/\$([^\$]+)\$/g, function(match, math) {
+      try {
+        return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
+      } catch (e) {
+        console.error('KaTeX error:', e);
+        return match;
+      }
+    });
+
+    element.innerHTML = html;
+  }
+
+  /**
+   * Create "Open in Dust" button
+   * @param {string} workspaceId - Workspace ID
+   * @param {string} conversationId - Conversation ID
+   * @returns {string} HTML for button
+   */
+  function createOpenInDustButton(workspaceId, conversationId) {
+    if (!workspaceId || !conversationId) return '';
+
+    const dustUrl = `https://eu.dust.tt/w/${workspaceId}/conversation/${conversationId}`;
+
+    return `<div style="margin-top: 24px; padding-top: 20px; border-top: 2px solid rgba(82, 140, 142, 0.3); text-align: center;"><a href="${dustUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #528c8e; color: white; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px; transition: background 0.2s;">🌪️ Open in Dust</a></div>`;
+  }
+
+  /**
+   * Handle copy events to preserve link HTML
+   * @param {ClipboardEvent} event - The copy event
+   */
+  function handleCopyWithLinks(event) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const fragment = range.cloneContents();
+
+    // Check if selection contains any links
+    const links = fragment.querySelectorAll('a[href]');
+    if (links.length === 0) return; // No links, use default behavior
+
+    // Create HTML version (already has <a> tags)
+    const div = document.createElement('div');
+    div.appendChild(fragment.cloneNode(true));
+    const htmlContent = div.innerHTML;
+
+    // Create plain text version with URLs
+    let textContent = selection.toString();
+
+    // For plain text: append URLs after link titles
+    const selectedLinks = Array.from(range.cloneContents().querySelectorAll('a[href]')).map(link => ({
+      text: link.textContent.trim(),
+      url: link.getAttribute('href')
+    }));
+
+    selectedLinks.forEach(link => {
+      textContent = textContent.replace(link.text, `${link.text} (${link.url})`);
+    });
+
+    // Set clipboard data
+    event.preventDefault();
+    event.clipboardData.setData('text/html', htmlContent);
+    event.clipboardData.setData('text/plain', textContent);
   }
 
   /**

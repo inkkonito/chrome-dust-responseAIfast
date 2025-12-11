@@ -147,6 +147,50 @@ const Formatting = {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
 
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  },
+
+  /**
+   * Extract all HTTP/HTTPS URLs from text
+   * @param {string} text - The text to extract URLs from
+   * @returns {Array<string>} Array of unique URLs
+   */
+  extractUrls(text) {
+    if (!text) return [];
+
+    // Regex to match HTTP/HTTPS URLs
+    const urlRegex = /https?:\/\/[^\s<>"'\)]+/gi;
+    const matches = text.match(urlRegex) || [];
+
+    // Deduplicate URLs
+    const uniqueUrls = [...new Set(matches)];
+
+    // Validate URLs
+    return uniqueUrls.filter(url => {
+      try {
+        new URL(url);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    });
+  },
+
+  /**
+   * Create HTML for links section from structured link objects
+   * @param {Array<{uri: string, text: string}>} links - Array of link objects with uri and text
+   * @returns {string} HTML string for links section
+   */
+  createLinksSection(links) {
+    if (!links || links.length === 0) return '';
+
+    const linksHtml = links.map(link => {
+      const safeUri = this.escapeHtml(link.uri || '');
+      const safeText = this.escapeHtml(link.text || link.uri || 'Link');
+
+      return `<li style="margin-bottom: 8px;"><a href="${safeUri}" target="_blank" rel="noopener noreferrer" style="color: #528c8e; text-decoration: none; word-break: break-word;">${safeText}</a></li>`;
+    }).join('');
+
+    return `<div style="margin-top: 32px; padding-top: 24px; border-top: 2px solid rgba(82, 140, 142, 0.3);"><h3 style="font-size: 18px; font-weight: 600; color: #0b465e; margin-bottom: 16px;">🔗 Links</h3><ul style="margin: 0; padding-left: 24px; list-style-type: disc;">${linksHtml}</ul></div>`;
   }
 };
 

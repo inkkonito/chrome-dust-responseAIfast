@@ -214,7 +214,7 @@ document.addEventListener('DOMContentLoaded', function() {
   /**
    * View full entry in modal
    */
-  function viewEntry(entryId) {
+  async function viewEntry(entryId) {
     const entry = allHistory.find(e => e.id === entryId);
 
     if (!entry || !entry.answer) {
@@ -229,6 +229,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     currentModalAnswer = cleanAnswer;
 
+    // Get structured links from history entry (stored in links field)
+    const structuredLinks = entry.links || [];
+
+    // Get workspace ID from config
+    const config = await chrome.storage.sync.get(['workspaceId']);
+    const openInDustButton = createOpenInDustButton(config.workspaceId || entry.workspaceId, entry.conversationId);
+
     // Render markdown with LaTeX
     try {
       let html = '';
@@ -241,7 +248,14 @@ document.addEventListener('DOMContentLoaded', function() {
         html = `<pre>${escapeHtml(cleanAnswer)}</pre>`;
       }
 
-      modalBody.innerHTML = `<div class="response-content">${html}</div>`;
+      // Add links section using STRUCTURED links
+      const linksSection = Formatting.createLinksSection(structuredLinks);
+
+      modalBody.innerHTML = `<div class="response-content">${html}${linksSection}${openInDustButton}</div>`;
+
+      // Add copy event listener to preserve link HTML when copying
+      modalBody.removeEventListener('copy', handleCopyWithLinks);
+      modalBody.addEventListener('copy', handleCopyWithLinks);
 
       // Render math if KaTeX is available
       if (typeof katex !== 'undefined') {
@@ -254,6 +268,59 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Show modal
     answerModal.classList.add('active');
+  }
+
+  /**
+   * Create "Open in Dust" button
+   * @param {string} workspaceId - Workspace ID
+   * @param {string} conversationId - Conversation ID
+   * @returns {string} HTML for button
+   */
+  function createOpenInDustButton(workspaceId, conversationId) {
+    if (!workspaceId || !conversationId) return '';
+
+    const dustUrl = `https://eu.dust.tt/w/${workspaceId}/conversation/${conversationId}`;
+
+    return `<div style="margin-top: 24px; padding-top: 20px; border-top: 2px solid rgba(82, 140, 142, 0.3); text-align: center;"><a href="${dustUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #528c8e; color: white; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px; transition: background 0.2s;">🌪️ Open in Dust</a></div>`;
+  }
+
+  /**
+   * Handle copy events to preserve link HTML
+   * @param {ClipboardEvent} event - The copy event
+   */
+  function handleCopyWithLinks(event) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const fragment = range.cloneContents();
+
+    // Check if selection contains any links
+    const links = fragment.querySelectorAll('a[href]');
+    if (links.length === 0) return; // No links, use default behavior
+
+    // Create HTML version (already has <a> tags)
+    const div = document.createElement('div');
+    div.appendChild(fragment.cloneNode(true));
+    const htmlContent = div.innerHTML;
+
+    // Create plain text version with URLs
+    let textContent = selection.toString();
+
+    // For plain text: append URLs after link titles
+    const selectedLinks = Array.from(range.cloneContents().querySelectorAll('a[href]')).map(link => ({
+      text: link.textContent.trim(),
+      url: link.getAttribute('href')
+    }));
+
+    selectedLinks.forEach(link => {
+      textContent = textContent.replace(link.text, `${link.text} (${link.url})`);
+    });
+
+    // Set clipboard data
+    event.preventDefault();
+    event.clipboardData.setData('text/html', htmlContent);
+    event.clipboardData.setData('text/plain', textContent);
   }
 
   /**

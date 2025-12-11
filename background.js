@@ -24,10 +24,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(async response => {
         const duration = Date.now() - startTime;
 
+        // Extract answer and structured links from response
+        const answer = extractAnswer(response);
+        const structuredLinks = extractStructuredLinks(response);
+
         // Save to history
         const entry = await saveToHistory(request, response, sender, duration);
 
-        sendResponse({ success: true, data: response, historyId: entry.id });
+        sendResponse({
+          success: true,
+          data: response,
+          answer: answer,
+          links: structuredLinks,
+          conversationId: extractConversationId(response),
+          historyId: entry.id
+        });
       })
       .catch(async error => {
         const duration = Date.now() - startTime;
@@ -82,6 +93,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (request.action === 'openHistory') {
+    // Open history page in a new tab
+    chrome.tabs.create({ url: 'history.html' });
+    return true;
+  }
 });
 
 async function makeApiCall(apiUrl, apiKey, requestBody) {
@@ -123,8 +140,12 @@ async function makeApiCall(apiUrl, apiKey, requestBody) {
 async function saveToHistory(request, response, sender, duration, isError = false) {
   // Extract answer from conversation response
   const answer = isError ? null : extractAnswer(response);
+  // Extract structured links from conversation response
+  const structuredLinks = isError ? [] : extractStructuredLinks(response);
+  // Extract conversation ID from response
+  const conversationId = isError ? null : extractConversationId(response);
 
-  // Get current config for agentId
+  // Get current config for agentId and workspaceId
   const config = await chrome.storage.sync.get(null);
 
   const entry = {
@@ -135,6 +156,9 @@ async function saveToHistory(request, response, sender, duration, isError = fals
     selectedText: request.selectedText || '',
     query: request.selectedText || '',
     answer: answer,
+    links: structuredLinks,
+    conversationId: conversationId,
+    workspaceId: config.workspaceId || null,
     error: isError ? response.error : null,
     agentId: config.agentId || null,
     duration: duration
@@ -172,4 +196,78 @@ function extractAnswer(data) {
   }
 
   return null;
+}
+
+/**
+ * Extract structured links from Dust API response
+ * @param {Object} data - Full API response data
+ * @returns {Array<{uri: string, text: string}>} Array of link objects with uri and text
+ */
+function extractStructuredLinks(data) {
+  try {
+    // Navigate to: conversation.content[1][0].actions
+    const assistantMessage = data?.conversation?.content?.[1]?.[0];
+    if (!assistantMessage) {
+      return [];
+    }
+
+    // Check if actions array exists
+    if (!Array.isArray(assistantMessage.actions) || assistantMessage.actions.length === 0) {
+      return [];
+    }
+
+    // Iterate through ALL actions to find resources (they may be in actions[0], actions[1], etc.)
+    const allLinks = [];
+    const seenUris = new Set(); // Track URIs to avoid duplicates
+
+    for (let i = 0; i < assistantMessage.actions.length; i++) {
+      const outputArray = assistantMessage.actions[i]?.output;
+
+      if (!Array.isArray(outputArray) || outputArray.length === 0) {
+        continue; // Skip this action if no output array
+      }
+
+      // Extract uri and text from each output item's resource
+      const links = outputArray
+        .filter(item => item.type === 'resource' && item.resource) // Only resource items
+        .map(item => ({
+          uri: item.resource.uri,  // lowercase 'uri'
+          text: item.resource.text  // lowercase 'text'
+        }))
+        .filter(link => link.uri && link.text) // Only include items with both fields
+        .filter(link => {
+          // Deduplicate by URI
+          if (seenUris.has(link.uri)) {
+            return false;
+          }
+          seenUris.add(link.uri);
+          return true;
+        });
+
+      if (links.length > 0) {
+        console.log(`[Dust] Found ${links.length} unique links in actions[${i}]`);
+        allLinks.push(...links);
+      }
+    }
+
+    console.log('[Dust] Total extracted unique links:', allLinks.length);
+    return allLinks;
+  } catch (error) {
+    console.error('[Dust] Error extracting structured links:', error);
+    return [];
+  }
+}
+
+/**
+ * Extract conversation ID from Dust API response
+ * @param {Object} data - API response data
+ * @returns {string|null} Conversation ID (sId) or null
+ */
+function extractConversationId(data) {
+  try {
+    return data?.conversation?.sId || null;
+  } catch (error) {
+    console.error('[Dust] Error extracting conversation ID:', error);
+    return null;
+  }
 }

@@ -50,6 +50,25 @@
     </div>
   </div>
 
+  <!-- Answer Modal -->
+  <div id="answerModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Full Answer</h2>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- Answer content will be inserted here -->
+      </div>
+      <div class="modal-footer">
+        <button id="modalCopyBtn" class="btn btn-secondary">📋 Copy</button>
+        <button id="modalCloseBtn" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="marked.min.js"></script>
+  <script src="katex.min.js"></script>
   <script src="utils/formatting.js"></script>
   <script src="popup.js"></script>
 </body>
