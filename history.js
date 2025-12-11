@@ -3,21 +3,33 @@ document.addEventListener('DOMContentLoaded', function() {
   const backBtn = document.getElementById('backBtn');
   const searchInput = document.getElementById('searchInput');
   const agentFilter = document.getElementById('agentFilter');
-  const exportBtn = document.getElementById('exportBtn');
-  const clearAllBtn = document.getElementById('clearAllBtn');
+  const pageSizeSelector = document.getElementById('pageSizeSelector');
+  const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+  const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  const selectedCount = document.getElementById('selectedCount');
   const statsText = document.getElementById('statsText');
   const filteredStats = document.getElementById('filteredStats');
+  const paginationInfo = document.getElementById('paginationInfo');
   const historyTableBody = document.getElementById('historyTableBody');
+  const paginationControls = document.getElementById('paginationControls');
+  const prevPageBtn = document.getElementById('prevPageBtn');
+  const nextPageBtn = document.getElementById('nextPageBtn');
+  const pageInfo = document.getElementById('pageInfo');
   const answerModal = document.getElementById('answerModal');
   const modalClose = document.getElementById('modalClose');
   const modalCloseBtn = document.getElementById('modalCloseBtn');
   const modalCopyBtn = document.getElementById('modalCopyBtn');
+  const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
   const modalBody = document.getElementById('modalBody');
 
   // State
   let allHistory = [];
   let filteredHistory = [];
   let currentModalAnswer = '';
+  let currentModalLinks = [];
+  let currentPage = 1;
+  let pageSize = 20;
+  let selectedEntries = new Set(); // Track selected entry IDs
 
   // Load history on page load
   loadHistory();
@@ -26,11 +38,15 @@ document.addEventListener('DOMContentLoaded', function() {
   backBtn.addEventListener('click', () => window.close());
   searchInput.addEventListener('input', filterHistory);
   agentFilter.addEventListener('change', filterHistory);
-  exportBtn.addEventListener('click', exportHistory);
-  clearAllBtn.addEventListener('click', clearAllHistory);
+  pageSizeSelector.addEventListener('change', handlePageSizeChange);
+  selectAllCheckbox.addEventListener('change', handleSelectAll);
+  bulkDeleteBtn.addEventListener('click', handleBulkDelete);
+  prevPageBtn.addEventListener('click', () => changePage(currentPage - 1));
+  nextPageBtn.addEventListener('click', () => changePage(currentPage + 1));
   modalClose.addEventListener('click', closeModal);
   modalCloseBtn.addEventListener('click', closeModal);
   modalCopyBtn.addEventListener('click', copyModalAnswer);
+  modalCopyLinksBtn.addEventListener('click', copyModalLinks);
 
   // Close modal on background click
   answerModal.addEventListener('click', (e) => {
@@ -96,9 +112,18 @@ document.addEventListener('DOMContentLoaded', function() {
     statsText.textContent = `Total queries: ${allHistory.length}`;
 
     if (filteredHistory.length !== allHistory.length) {
-      filteredStats.textContent = `Showing: ${filteredHistory.length}`;
+      filteredStats.textContent = `Filtered: ${filteredHistory.length}`;
     } else {
       filteredStats.textContent = '';
+    }
+
+    // Update pagination info
+    if (filteredHistory.length > 0) {
+      const startIndex = (currentPage - 1) * pageSize + 1;
+      const endIndex = Math.min(currentPage * pageSize, filteredHistory.length);
+      paginationInfo.textContent = `Displaying ${startIndex}-${endIndex} of ${filteredHistory.length}`;
+    } else {
+      paginationInfo.textContent = '';
     }
   }
 
@@ -125,12 +150,54 @@ document.addEventListener('DOMContentLoaded', function() {
       return true;
     });
 
+    currentPage = 1; // Reset to first page when filtering
     updateStats();
     displayHistory();
   }
 
   /**
-   * Display history in table
+   * Handle page size change
+   */
+  function handlePageSizeChange() {
+    pageSize = parseInt(pageSizeSelector.value);
+    currentPage = 1; // Reset to first page when changing page size
+    displayHistory();
+  }
+
+  /**
+   * Change to a specific page
+   */
+  function changePage(newPage) {
+    const totalPages = Math.ceil(filteredHistory.length / pageSize);
+    if (newPage < 1 || newPage > totalPages) return;
+
+    currentPage = newPage;
+    displayHistory();
+
+    // Scroll to top of table
+    document.querySelector('.history-table-container').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  /**
+   * Update pagination controls
+   */
+  function updatePaginationControls() {
+    const totalPages = Math.ceil(filteredHistory.length / pageSize);
+
+    if (totalPages <= 1) {
+      paginationControls.style.display = 'none';
+      return;
+    }
+
+    paginationControls.style.display = 'block';
+    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+
+    prevPageBtn.disabled = currentPage === 1;
+    nextPageBtn.disabled = currentPage === totalPages;
+  }
+
+  /**
+   * Display history in table with pagination
    */
   function displayHistory() {
     historyTableBody.innerHTML = '';
@@ -144,13 +211,135 @@ document.addEventListener('DOMContentLoaded', function() {
           </td>
         </tr>
       `;
+      paginationControls.style.display = 'none';
       return;
     }
 
-    filteredHistory.forEach(entry => {
+    // Calculate pagination
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, filteredHistory.length);
+    const pageEntries = filteredHistory.slice(startIndex, endIndex);
+
+    // Display entries for current page
+    pageEntries.forEach(entry => {
       const row = createHistoryRow(entry);
       historyTableBody.appendChild(row);
     });
+
+    // Update pagination controls
+    updatePaginationControls();
+
+    // Update select all checkbox state
+    updateSelectAllCheckbox();
+  }
+
+  /**
+   * Handle entry selection
+   */
+  function handleEntrySelection(entryId, isChecked) {
+    if (isChecked) {
+      selectedEntries.add(entryId);
+    } else {
+      selectedEntries.delete(entryId);
+    }
+    updateSelectionUI();
+  }
+
+  /**
+   * Handle select all checkbox
+   */
+  function handleSelectAll() {
+    const isChecked = selectAllCheckbox.checked;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, filteredHistory.length);
+    const pageEntries = filteredHistory.slice(startIndex, endIndex);
+
+    pageEntries.forEach(entry => {
+      if (isChecked) {
+        selectedEntries.add(entry.id);
+      } else {
+        selectedEntries.delete(entry.id);
+      }
+    });
+
+    updateSelectionUI();
+    displayHistory(); // Refresh to update checkboxes
+  }
+
+  /**
+   * Update select all checkbox state
+   */
+  function updateSelectAllCheckbox() {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, filteredHistory.length);
+    const pageEntries = filteredHistory.slice(startIndex, endIndex);
+
+    if (pageEntries.length === 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+      return;
+    }
+
+    const selectedOnPage = pageEntries.filter(entry => selectedEntries.has(entry.id)).length;
+
+    if (selectedOnPage === 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else if (selectedOnPage === pageEntries.length) {
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true;
+    }
+  }
+
+  /**
+   * Update selection UI (button visibility and count)
+   */
+  function updateSelectionUI() {
+    const count = selectedEntries.size;
+    selectedCount.textContent = count;
+
+    if (count > 0) {
+      bulkDeleteBtn.style.display = 'inline-block';
+    } else {
+      bulkDeleteBtn.style.display = 'none';
+    }
+  }
+
+  /**
+   * Handle bulk delete
+   */
+  async function handleBulkDelete() {
+    const count = selectedEntries.size;
+    if (count === 0) return;
+
+    if (!confirm(`Are you sure you want to delete ${count} selected ${count === 1 ? 'entry' : 'entries'}?`)) {
+      return;
+    }
+
+    try {
+      // Delete all selected entries
+      const deletePromises = Array.from(selectedEntries).map(entryId =>
+        chrome.runtime.sendMessage({
+          action: 'deleteHistoryEntry',
+          id: entryId
+        })
+      );
+
+      await Promise.all(deletePromises);
+
+      // Clear selection
+      selectedEntries.clear();
+      updateSelectionUI();
+
+      // Reload history
+      await loadHistory();
+    } catch (error) {
+      console.error('Error deleting entries:', error);
+      alert('Failed to delete some entries');
+    }
   }
 
   /**
@@ -160,8 +349,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const row = document.createElement('tr');
 
     const pageInfo = Formatting.formatPageInfo(entry.pageTitle, entry.pageUrl);
+    const hasLinks = entry.links && entry.links.length > 0;
+    const isSelected = selectedEntries.has(entry.id);
 
     row.innerHTML = `
+      <td style="text-align: center;">
+        <input type="checkbox" class="entry-checkbox" data-id="${entry.id}" ${isSelected ? 'checked' : ''} style="cursor: pointer;">
+      </td>
       <td class="time-cell">
         <span>${Formatting.formatRelativeTime(entry.timestamp)}</span>
         <span class="time-absolute">${Formatting.formatAbsoluteTime(entry.timestamp)}</span>
@@ -187,6 +381,9 @@ document.addEventListener('DOMContentLoaded', function() {
         <button class="table-action-btn copy-btn" data-id="${entry.id}" ${!entry.answer ? 'disabled' : ''}>
           📋 Copy
         </button>
+        <button class="table-action-btn copy-links-btn" data-id="${entry.id}" ${!hasLinks ? 'disabled style="opacity: 0.6;"' : ''}>
+          🔗 Links
+        </button>
         <button class="table-action-btn delete-btn" data-id="${entry.id}">
           🗑️ Delete
         </button>
@@ -194,9 +391,13 @@ document.addEventListener('DOMContentLoaded', function() {
     `;
 
     // Add event listeners
+    const checkbox = row.querySelector('.entry-checkbox');
     const viewBtn = row.querySelector('.view-btn');
     const copyBtn = row.querySelector('.copy-btn');
+    const copyLinksBtn = row.querySelector('.copy-links-btn');
     const deleteBtn = row.querySelector('.delete-btn');
+
+    checkbox.addEventListener('change', () => handleEntrySelection(entry.id, checkbox.checked));
 
     if (viewBtn && !viewBtn.disabled) {
       viewBtn.addEventListener('click', () => viewEntry(entry.id));
@@ -204,6 +405,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (copyBtn && !copyBtn.disabled) {
       copyBtn.addEventListener('click', () => copyAnswer(entry.id));
+    }
+
+    if (copyLinksBtn && !copyLinksBtn.disabled) {
+      copyLinksBtn.addEventListener('click', () => copyLinks(entry.id));
     }
 
     deleteBtn.addEventListener('click', () => deleteEntry(entry.id));
@@ -231,6 +436,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Get structured links from history entry (stored in links field)
     const structuredLinks = entry.links || [];
+    currentModalLinks = structuredLinks;
 
     // Get workspace ID from config
     const config = await chrome.storage.sync.get(['workspaceId']);
@@ -360,6 +566,7 @@ document.addEventListener('DOMContentLoaded', function() {
   function closeModal() {
     answerModal.classList.remove('active');
     currentModalAnswer = '';
+    currentModalLinks = [];
   }
 
   /**
@@ -386,6 +593,38 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   /**
+   * Copy modal links to clipboard with title and bullet points
+   */
+  async function copyModalLinks() {
+    if (!currentModalLinks || currentModalLinks.length === 0) {
+      alert('No links to copy');
+      return;
+    }
+
+    try {
+      const header = '🔗 Links\n\n';
+      const linksText = currentModalLinks
+        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+        .join('\n');
+      const fullText = header + linksText;
+      await navigator.clipboard.writeText(fullText);
+
+      const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
+      const originalText = modalCopyLinksBtn.textContent;
+      modalCopyLinksBtn.textContent = '✓ Copied!';
+      modalCopyLinksBtn.disabled = true;
+
+      setTimeout(() => {
+        modalCopyLinksBtn.textContent = originalText;
+        modalCopyLinksBtn.disabled = false;
+      }, 2000);
+    } catch (error) {
+      console.error('Error copying links:', error);
+      alert('Failed to copy links to clipboard');
+    }
+  }
+
+  /**
    * Copy answer to clipboard
    */
   async function copyAnswer(entryId) {
@@ -402,6 +641,31 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error copying:', error);
       alert('Failed to copy to clipboard');
+    }
+  }
+
+  /**
+   * Copy links to clipboard with title and bullet points
+   */
+  async function copyLinks(entryId) {
+    const entry = allHistory.find(e => e.id === entryId);
+
+    if (!entry || !entry.links || entry.links.length === 0) {
+      alert('No links to copy');
+      return;
+    }
+
+    try {
+      const header = '🔗 Links\n\n';
+      const linksText = entry.links
+        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+        .join('\n');
+      const fullText = header + linksText;
+      await navigator.clipboard.writeText(fullText);
+      alert('Links copied to clipboard!');
+    } catch (error) {
+      console.error('Error copying links:', error);
+      alert('Failed to copy links to clipboard');
     }
   }
 
@@ -431,60 +695,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  /**
-   * Export history to JSON
-   */
-  async function exportHistory() {
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'exportHistory'
-      });
-
-      if (response.success) {
-        const json = response.data;
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `dust-history-${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        URL.revokeObjectURL(url);
-      } else {
-        throw new Error('Failed to export history');
-      }
-    } catch (error) {
-      console.error('Error exporting history:', error);
-      alert('Failed to export history');
-    }
-  }
-
-  /**
-   * Clear all history
-   */
-  async function clearAllHistory() {
-    if (!confirm('Are you sure you want to clear all history? This cannot be undone.')) {
-      return;
-    }
-
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'clearHistory'
-      });
-
-      if (response.success) {
-        await loadHistory();
-      } else {
-        throw new Error('Failed to clear history');
-      }
-    } catch (error) {
-      console.error('Error clearing history:', error);
-      alert('Failed to clear history');
-    }
-  }
 
   /**
    * Show error message

@@ -87,13 +87,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request.action === 'exportHistory') {
-    HistoryStorage.exportHistory()
-      .then(json => sendResponse({ success: true, data: json }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
   if (request.action === 'openHistory') {
     // Open history page in a new tab
     chrome.tabs.create({ url: 'history.html' });

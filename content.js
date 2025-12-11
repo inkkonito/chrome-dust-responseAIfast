@@ -1,5 +1,8 @@
 // Content script for text selection and response display
 
+// Store current links for copy functionality
+let currentLinks = [];
+
 // Formatting utilities
 const Formatting = {
   /**
@@ -493,9 +496,9 @@ function showSidePanel() {
   `;
   header.innerHTML = `
     <h2 class="dust-panel-title" style="margin: 0; font-size: 18px; font-weight: 600; color: #ffffff;">Dust AI Response</h2>
-    <div style="display: flex; gap: 10px; align-items: center;">
-      <button class="dust-panel-expand" id="dust-panel-expand" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 4px 8px; color: #ffffff;" title="Expand panel">⇔</button>
-      <button class="dust-panel-close" id="dust-panel-close" style="background: none; border: none; font-size: 24px; cursor: pointer; padding: 4px 8px; color: #ffffff;" title="Close">✕</button>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button class="dust-panel-expand" id="dust-panel-expand" style="background: none; border: none; font-size: 22px; cursor: pointer; padding: 6px; color: #ffffff; line-height: 1; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 4px; transition: background 0.2s;" title="Expand panel">⇔</button>
+      <button class="dust-panel-close" id="dust-panel-close" style="background: none; border: none; font-size: 22px; cursor: pointer; padding: 6px; color: #ffffff; line-height: 1; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 4px; transition: background 0.2s;" title="Close">✕</button>
     </div>
   `;
 
@@ -524,8 +527,9 @@ function showSidePanel() {
     gap: 10px !important;
   `;
   footer.innerHTML = `
-    <button class="dust-btn dust-btn-secondary" id="dust-copy-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #528c8e; color: white; cursor: pointer;">📋 Copy Answer</button>
-    <button class="dust-btn dust-btn-secondary" id="dust-history-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #528c8e; color: white; cursor: pointer;">📚 View History</button>
+    <button class="dust-btn dust-btn-secondary" id="dust-copy-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #528c8e; color: white; cursor: pointer; transition: background 0.2s;">📋 Copy Answer</button>
+    <button class="dust-btn dust-btn-secondary" id="dust-copy-links-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #528c8e; color: white; cursor: pointer; transition: background 0.2s;">🔗 Copy Links</button>
+    <button class="dust-btn dust-btn-secondary" id="dust-history-btn" style="flex: 1; padding: 10px; border: none; border-radius: 6px; background: #528c8e; color: white; cursor: pointer; transition: background 0.2s;">📚 View History</button>
   `;
 
   sidePanel.appendChild(header);
@@ -548,11 +552,13 @@ function showSidePanel() {
   const closeBtn = document.getElementById('dust-panel-close');
   const expandBtn = document.getElementById('dust-panel-expand');
   const copyBtn = document.getElementById('dust-copy-btn');
+  const copyLinksBtn = document.getElementById('dust-copy-links-btn');
   const historyBtn = document.getElementById('dust-history-btn');
 
   if (closeBtn) closeBtn.addEventListener('click', closeSidePanel);
   if (expandBtn) expandBtn.addEventListener('click', togglePanelWidth);
   if (copyBtn) copyBtn.addEventListener('click', copyAnswer);
+  if (copyLinksBtn) copyLinksBtn.addEventListener('click', copyLinks);
   if (historyBtn) historyBtn.addEventListener('click', openHistory);
 
   sidePanelOpen = true;
@@ -632,6 +638,12 @@ async function displayResponse(answer, structuredLinks = [], conversationId = nu
   console.log('[Dust] displayResponse called, answer length:', answer ? answer.length : 0);
   console.log('[Dust] Structured links:', structuredLinks.length);
   console.log('[Dust] Conversation ID:', conversationId);
+
+  // Store links globally for copy functionality
+  currentLinks = structuredLinks || [];
+
+  // Update Copy Links button state
+  updateCopyLinksButtonState();
 
   try {
     // Enhanced markdown formatting for better readability
@@ -823,7 +835,14 @@ async function copyAnswer() {
   if (!content) return;
 
   try {
-    const htmlContent = content.innerHTML;
+    // Clone the content to manipulate it
+    const contentClone = content.cloneNode(true);
+
+    // Remove links section and "Open in Dust" button (they have border-top styling)
+    const sectionsToRemove = contentClone.querySelectorAll('div[style*="border-top"]');
+    sectionsToRemove.forEach(section => section.remove());
+
+    const htmlContent = contentClone.innerHTML;
 
     // Create Google Sheets-friendly plain text with proper line breaks
     // Convert HTML to text while preserving structure
@@ -862,7 +881,7 @@ async function copyAnswer() {
 
     // Copy to clipboard
     await navigator.clipboard.writeText(plainText);
-    console.log('[Dust] Copied plain text with line breaks for Google Sheets');
+    console.log('[Dust] Copied answer text only (without links)');
 
     // Show feedback
     const copyBtn = document.getElementById('dust-copy-btn');
@@ -877,6 +896,63 @@ async function copyAnswer() {
   } catch (err) {
     console.error('[Dust] Failed to copy:', err);
     alert('Failed to copy to clipboard');
+  }
+}
+
+/**
+ * Update Copy Links button state based on available links
+ */
+function updateCopyLinksButtonState() {
+  const copyLinksBtn = document.getElementById('dust-copy-links-btn');
+  if (!copyLinksBtn) return;
+
+  if (!currentLinks || currentLinks.length === 0) {
+    copyLinksBtn.disabled = true;
+    copyLinksBtn.style.opacity = '0.5';
+    copyLinksBtn.style.cursor = 'not-allowed';
+    copyLinksBtn.style.background = '#6a9c9e'; // Darker teal for disabled state
+  } else {
+    copyLinksBtn.disabled = false;
+    copyLinksBtn.style.opacity = '1';
+    copyLinksBtn.style.cursor = 'pointer';
+    copyLinksBtn.style.background = '#528c8e'; // Normal teal
+  }
+}
+
+/**
+ * Copy links to clipboard with title and bullet points
+ */
+async function copyLinks() {
+  if (!currentLinks || currentLinks.length === 0) {
+    alert('No links to copy');
+    return;
+  }
+
+  try {
+    // Format links with title and bullet points: Title - URL
+    const header = '🔗 Links\n\n';
+    const linksText = currentLinks
+      .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+      .join('\n');
+    const fullText = header + linksText;
+
+    // Copy to clipboard
+    await navigator.clipboard.writeText(fullText);
+    console.log('[Dust] Copied links with title and bullet points');
+
+    // Show feedback
+    const copyLinksBtn = document.getElementById('dust-copy-links-btn');
+    const originalText = copyLinksBtn.textContent;
+    copyLinksBtn.textContent = '✓ Copied!';
+    copyLinksBtn.disabled = true;
+
+    setTimeout(() => {
+      copyLinksBtn.textContent = originalText;
+      copyLinksBtn.disabled = false;
+    }, 2000);
+  } catch (err) {
+    console.error('[Dust] Failed to copy links:', err);
+    alert('Failed to copy links to clipboard');
   }
 }
 

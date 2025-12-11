@@ -162,13 +162,14 @@
   color: #0b465e;
 }
 
-.dust-panel-close {
+.dust-panel-close,
+.dust-panel-expand {
   background: none;
   border: none;
-  font-size: 24px;
-  color: #528c8e;
+  font-size: 22px;
+  color: #ffffff;
   cursor: pointer;
-  padding: 0;
+  padding: 6px;
   width: 32px;
   height: 32px;
   display: flex;
@@ -176,11 +177,17 @@
   justify-content: center;
   border-radius: 4px;
   transition: background-color 0.2s;
+  line-height: 1;
 }
 
-.dust-panel-close:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-  color: #0b465e;
+.dust-panel-close:hover,
+.dust-panel-expand:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.dust-panel-close:active,
+.dust-panel-expand:active {
+  background-color: rgba(255, 255, 255, 0.25);
 }
 
 /* Panel Content */

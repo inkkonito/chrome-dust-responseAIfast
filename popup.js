@@ -12,10 +12,12 @@ document.addEventListener('DOMContentLoaded', function() {
   const modalClose = document.getElementById('modalClose');
   const modalCloseBtn = document.getElementById('modalCloseBtn');
   const modalCopyBtn = document.getElementById('modalCopyBtn');
+  const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
   const modalBody = document.getElementById('modalBody');
 
   // State
   let currentModalAnswer = '';
+  let currentModalLinks = [];
 
   // Load history on popup open
   loadHistory();
@@ -30,6 +32,7 @@ document.addEventListener('DOMContentLoaded', function() {
   modalClose.addEventListener('click', closeModal);
   modalCloseBtn.addEventListener('click', closeModal);
   modalCopyBtn.addEventListener('click', copyModalAnswer);
+  modalCopyLinksBtn.addEventListener('click', copyModalLinks);
 
   // Close modal on background click
   answerModal.addEventListener('click', (e) => {
@@ -178,6 +181,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const pageInfo = Formatting.formatPageInfo(entry.pageTitle, entry.pageUrl);
 
+    const hasLinks = entry.links && entry.links.length > 0;
+
     item.innerHTML = `
       <div class="history-item-header">
         <span class="history-time">${Formatting.formatRelativeTime(entry.timestamp)}</span>
@@ -186,6 +191,7 @@ document.addEventListener('DOMContentLoaded', function() {
       <div class="history-query">${escapeHtml(Formatting.truncateText(entry.query || entry.selectedText, 100))}</div>
       <div class="history-item-actions">
         <button class="history-action-btn copy-btn" data-id="${entry.id}">📋 Copy</button>
+        <button class="history-action-btn copy-links-btn" data-id="${entry.id}" ${!hasLinks ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>🔗 Links</button>
         <button class="history-action-btn view-btn" data-id="${entry.id}">👁️ View</button>
         <button class="history-action-btn delete-btn" data-id="${entry.id}">🗑️ Delete</button>
       </div>
@@ -193,6 +199,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add event listeners
     const copyBtn = item.querySelector('.copy-btn');
+    const copyLinksBtn = item.querySelector('.copy-links-btn');
     const viewBtn = item.querySelector('.view-btn');
     const deleteBtn = item.querySelector('.delete-btn');
 
@@ -200,6 +207,13 @@ document.addEventListener('DOMContentLoaded', function() {
       e.stopPropagation();
       copyAnswer(entry.id);
     });
+
+    if (hasLinks) {
+      copyLinksBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyLinks(entry.id);
+      });
+    }
 
     viewBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -240,6 +254,36 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   /**
+   * Copy links to clipboard with title and bullet points
+   */
+  async function copyLinks(entryId) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'getHistory'
+      });
+
+      if (response.success) {
+        const entry = response.data.find(e => e.id === entryId);
+
+        if (entry && entry.links && entry.links.length > 0) {
+          const header = '🔗 Links\n\n';
+          const linksText = entry.links
+            .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+            .join('\n');
+          const fullText = header + linksText;
+          await navigator.clipboard.writeText(fullText);
+          showStatus('Links copied to clipboard!', 'success');
+        } else {
+          showStatus('No links to copy', 'error');
+        }
+      }
+    } catch (error) {
+      console.error('Error copying links:', error);
+      showStatus('Failed to copy', 'error');
+    }
+  }
+
+  /**
    * View entry in modal
    */
   async function viewFullEntry(entryId) {
@@ -268,6 +312,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Get structured links from history entry (stored in links field)
       const structuredLinks = entry.links || [];
+      currentModalLinks = structuredLinks;
 
       // Get workspace ID from config
       const config = await chrome.storage.sync.get(['workspaceId']);
@@ -330,6 +375,7 @@ document.addEventListener('DOMContentLoaded', function() {
   function closeModal() {
     answerModal.classList.remove('active');
     currentModalAnswer = '';
+    currentModalLinks = [];
   }
 
   /**
@@ -351,6 +397,38 @@ document.addEventListener('DOMContentLoaded', function() {
       }, 2000);
     } catch (error) {
       console.error('Error copying:', error);
+      showStatus('Failed to copy', 'error');
+    }
+  }
+
+  /**
+   * Copy modal links to clipboard with title and bullet points
+   */
+  async function copyModalLinks() {
+    if (!currentModalLinks || currentModalLinks.length === 0) {
+      showStatus('No links to copy', 'error');
+      return;
+    }
+
+    try {
+      const header = '🔗 Links\n\n';
+      const linksText = currentModalLinks
+        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+        .join('\n');
+      const fullText = header + linksText;
+      await navigator.clipboard.writeText(fullText);
+
+      const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
+      const originalText = modalCopyLinksBtn.textContent;
+      modalCopyLinksBtn.textContent = '✓ Copied!';
+      modalCopyLinksBtn.disabled = true;
+
+      setTimeout(() => {
+        modalCopyLinksBtn.textContent = originalText;
+        modalCopyLinksBtn.disabled = false;
+      }, 2000);
+    } catch (error) {
+      console.error('Error copying links:', error);
       showStatus('Failed to copy', 'error');
     }
   }

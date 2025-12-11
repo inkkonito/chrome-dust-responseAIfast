@@ -824,11 +824,11 @@ pre {
 
 /* Delete button styling */
 .history-action-btn.delete-btn {
-  color: #e74c3c;
+  color: #0b465e;
 }
 
 .history-action-btn.delete-btn:hover {
-  background-color: #e74c3c;
-  border-color: #c0392b;
-  color: white;
+  background-color: #ecf0f1;
+  border-color: rgba(82, 140, 142, 0.3);
+  color: #0b465e;
 }
