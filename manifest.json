@@ -32,7 +32,8 @@
         "marked.min.js",
         "katex.min.js",
         "katex.min.css",
-        "content.css"
+        "content.css",
+        "icon/favicon-32x32-1.png"
       ],
       "matches": ["<all_urls>"]
     }

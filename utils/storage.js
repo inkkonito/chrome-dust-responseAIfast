@@ -7,6 +7,9 @@ const HistoryStorage = {
   // Maximum length for selectedText storage
   MAX_TEXT_LENGTH: 500,
 
+  // Lock for preventing race conditions
+  _deleteLock: null,
+
   /**
    * Get all history entries
    * @returns {Promise<Array>} Array of history entries
@@ -84,21 +87,98 @@ const HistoryStorage = {
    * @returns {Promise<boolean>} True if deleted, false if not found
    */
   async deleteEntry(id) {
-    const history = await this.getHistory();
-    const index = history.findIndex(entry => entry.id === id);
-
-    if (index === -1) {
-      return false;
+    // Wait for any existing delete operation to complete
+    while (this._deleteLock) {
+      await this._deleteLock;
     }
 
-    history.splice(index, 1);
-    await chrome.storage.local.set({ history });
-
-    chrome.runtime.sendMessage({ action: 'historyUpdated' }).catch(() => {
-      // Ignore errors if no listeners
+    // Create a new lock promise
+    let releaseLock;
+    this._deleteLock = new Promise(resolve => {
+      releaseLock = resolve;
     });
 
-    return true;
+    try {
+      const history = await this.getHistory();
+      const index = history.findIndex(entry => entry.id === id);
+
+      if (index === -1) {
+        return false;
+      }
+
+      history.splice(index, 1);
+      await chrome.storage.local.set({ history });
+
+      chrome.runtime.sendMessage({ action: 'historyUpdated' }).catch(() => {
+        // Ignore errors if no listeners
+      });
+
+      return true;
+    } finally {
+      // Release the lock
+      releaseLock();
+      this._deleteLock = null;
+    }
+  },
+
+  /**
+   * Delete multiple history entries by IDs (optimized for bulk operations)
+   * @param {Array<string>} ids - Array of entry IDs to delete
+   * @returns {Promise<Object>} Object with success count and failed IDs
+   */
+  async deleteEntries(ids) {
+    console.log('[Storage] Bulk delete called with IDs:', ids);
+
+    // Wait for any existing delete operation to complete
+    while (this._deleteLock) {
+      await this._deleteLock;
+    }
+
+    // Create a new lock promise
+    let releaseLock;
+    this._deleteLock = new Promise(resolve => {
+      releaseLock = resolve;
+    });
+
+    try {
+      const history = await this.getHistory();
+      console.log('[Storage] Current history length:', history.length);
+
+      // Filter out entries with IDs in the delete list
+      const idsToDelete = new Set(ids);
+      const updatedHistory = history.filter(entry => !idsToDelete.has(entry.id));
+
+      console.log('[Storage] Updated history length:', updatedHistory.length);
+      console.log('[Storage] Entries deleted:', history.length - updatedHistory.length);
+
+      // Save updated history
+      await chrome.storage.local.set({ history: updatedHistory });
+
+      // Broadcast update
+      chrome.runtime.sendMessage({ action: 'historyUpdated' }).catch(() => {
+        // Ignore errors if no listeners
+      });
+
+      const deletedCount = history.length - updatedHistory.length;
+      console.log('[Storage] Successfully deleted', deletedCount, 'entries');
+
+      return {
+        success: true,
+        deletedCount: deletedCount,
+        failedIds: []
+      };
+    } catch (error) {
+      console.error('[Storage] Error in bulk delete:', error);
+      return {
+        success: false,
+        deletedCount: 0,
+        failedIds: ids
+      };
+    } finally {
+      // Release the lock
+      releaseLock();
+      this._deleteLock = null;
+    }
   },
 
   /**

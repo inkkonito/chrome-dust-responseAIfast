@@ -237,11 +237,13 @@ document.addEventListener('DOMContentLoaded', function() {
    * Handle entry selection
    */
   function handleEntrySelection(entryId, isChecked) {
+    console.log('[History] Entry selection changed:', { entryId, isChecked });
     if (isChecked) {
       selectedEntries.add(entryId);
     } else {
       selectedEntries.delete(entryId);
     }
+    console.log('[History] Selected entries:', Array.from(selectedEntries));
     updateSelectionUI();
   }
 
@@ -313,35 +315,50 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   async function handleBulkDelete() {
     const count = selectedEntries.size;
-    if (count === 0) return;
+    console.log('[History] Bulk delete triggered. Selected count:', count);
+    console.log('[History] Selected entry IDs:', Array.from(selectedEntries));
+
+    if (count === 0) {
+      console.log('[History] No entries selected, returning');
+      return;
+    }
 
     if (!confirm(`Are you sure you want to delete ${count} selected ${count === 1 ? 'entry' : 'entries'}?`)) {
+      console.log('[History] Delete cancelled by user');
       return;
     }
 
     try {
-      // Delete all selected entries
-      const deletePromises = Array.from(selectedEntries).map(entryId =>
-        chrome.runtime.sendMessage({
-          action: 'deleteHistoryEntry',
-          id: entryId
-        })
-      );
+      // Create array of entry IDs to delete
+      const entriesToDelete = Array.from(selectedEntries);
+      console.log('[History] Entries to delete:', entriesToDelete);
 
-      await Promise.all(deletePromises);
+      // Use bulk delete action for better performance and atomicity
+      console.log('[History] Sending bulk delete message...');
+      const response = await chrome.runtime.sendMessage({
+        action: 'deleteHistoryEntries',
+        ids: entriesToDelete
+      });
+
+      console.log('[History] Bulk delete response:', response);
 
       // Clear selection
       selectedEntries.clear();
       updateSelectionUI();
 
-      // Reload history
+      // Reload history to reflect changes
       await loadHistory();
 
-      // Show success toast
-      Toast.success(`Successfully deleted ${count} ${count === 1 ? 'entry' : 'entries'}`);
+      // Show appropriate toast based on results
+      if (response.success) {
+        const deletedCount = response.deletedCount || count;
+        Toast.success(`Successfully deleted ${deletedCount} ${deletedCount === 1 ? 'entry' : 'entries'}`);
+      } else {
+        throw new Error('Bulk delete failed');
+      }
     } catch (error) {
       console.error('Error deleting entries:', error);
-      Toast.error('Failed to delete some entries');
+      Toast.error('Failed to delete entries');
     }
   }
 
@@ -403,7 +420,10 @@ document.addEventListener('DOMContentLoaded', function() {
     checkbox.addEventListener('change', () => handleEntrySelection(entry.id, checkbox.checked));
 
     if (viewBtn && !viewBtn.disabled) {
-      viewBtn.addEventListener('click', () => viewEntry(entry.id));
+      viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent event from bubbling
+        viewEntry(entry.id);
+      });
     }
 
     if (copyBtn && !copyBtn.disabled) {
@@ -420,63 +440,33 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   /**
-   * View full entry in modal
+   * View full entry in real sidebar
    */
   async function viewEntry(entryId) {
+    console.log('[History] viewEntry called with ID:', entryId);
+
     const entry = allHistory.find(e => e.id === entryId);
+    console.log('[History] Found entry:', entry);
 
     if (!entry || !entry.answer) {
+      console.log('[History] No entry or answer found');
       Toast.warning('No answer available');
       return;
     }
 
-    // Remove citation markers from answer before displaying
-    const cleanAnswer = entry.answer
-      .replace(/:cite\[[^\]]+\]/g, '')
-      .replace(/\[:cite:[^\]]+\]/g, '');
-
-    currentModalAnswer = cleanAnswer;
-
-    // Get structured links from history entry (stored in links field)
-    const structuredLinks = entry.links || [];
-    currentModalLinks = structuredLinks;
-
     // Get workspace ID from config
     const config = await chrome.storage.sync.get(['workspaceId']);
-    const openInDustButton = createOpenInDustButton(config.workspaceId || entry.workspaceId, entry.conversationId);
+    console.log('[History] Config:', config);
 
-    // Render markdown with LaTeX
-    try {
-      let html = '';
-
-      if (typeof marked !== 'undefined' && marked.parse) {
-        html = marked.parse(cleanAnswer);
-      } else if (typeof marked !== 'undefined') {
-        html = marked(cleanAnswer);
-      } else {
-        html = `<pre>${escapeHtml(cleanAnswer)}</pre>`;
-      }
-
-      // Add links section using STRUCTURED links
-      const linksSection = Formatting.createLinksSection(structuredLinks);
-
-      modalBody.innerHTML = `<div class="response-content">${html}${linksSection}${openInDustButton}</div>`;
-
-      // Add copy event listener to preserve link HTML when copying
-      modalBody.removeEventListener('copy', handleCopyWithLinks);
-      modalBody.addEventListener('copy', handleCopyWithLinks);
-
-      // Render math if KaTeX is available
-      if (typeof katex !== 'undefined') {
-        renderMath(modalBody);
-      }
-    } catch (e) {
-      console.error('Error rendering markdown:', e);
-      modalBody.innerHTML = `<div class="response-content">${escapeHtml(cleanAnswer)}</div>`;
-    }
-
-    // Show modal
-    answerModal.classList.add('active');
+    // Show the real sidebar component
+    console.log('[History] Calling showHistorySidePanel...');
+    showHistorySidePanel({
+      answer: entry.answer,
+      links: entry.links || [],
+      conversationId: entry.conversationId,
+      workspaceId: config.workspaceId || entry.workspaceId
+    });
+    console.log('[History] showHistorySidePanel called');
   }
 
   /**
@@ -568,6 +558,7 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   function closeModal() {
     answerModal.classList.remove('active');
+    answerModal.classList.remove('sidebar-style');
     currentModalAnswer = '';
     currentModalLinks = [];
   }
@@ -578,7 +569,8 @@ document.addEventListener('DOMContentLoaded', function() {
   async function copyModalAnswer() {
     if (!currentModalAnswer) return;
 
-    await Formatting.copyToClipboard(currentModalAnswer, 'Answer copied to clipboard!');
+    // Use centralized utility
+    await Formatting.copyAnswerText(currentModalAnswer);
 
     const originalText = modalCopyBtn.textContent;
     modalCopyBtn.textContent = '✓ Copied!';
@@ -599,12 +591,8 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    const header = '🔗 Links\n\n';
-    const linksText = currentModalLinks
-      .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-      .join('\n');
-    const fullText = header + linksText;
-    await Formatting.copyToClipboard(fullText, 'Links copied to clipboard!');
+    // Use centralized utility
+    await Formatting.copyLinksText(currentModalLinks);
 
     const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
     const originalText = modalCopyLinksBtn.textContent;
@@ -628,7 +616,8 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    await Formatting.copyToClipboard(entry.answer, 'Answer copied to clipboard!');
+    // Use centralized utility
+    await Formatting.copyAnswerText(entry.answer);
   }
 
   /**
@@ -642,12 +631,8 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    const header = '🔗 Links\n\n';
-    const linksText = entry.links
-      .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-      .join('\n');
-    const fullText = header + linksText;
-    await Formatting.copyToClipboard(fullText, 'Links copied to clipboard!');
+    // Use centralized utility
+    await Formatting.copyLinksText(entry.links);
   }
 
   /**
@@ -690,6 +675,380 @@ document.addEventListener('DOMContentLoaded', function() {
         </td>
       </tr>
     `;
+  }
+
+  /**
+   * Show real sidebar component (same as content.js sidebar)
+   */
+  function showHistorySidePanel(entry) {
+    console.log('[History] showHistorySidePanel called with entry:', entry);
+
+    // Remove any existing sidebar AND its listeners
+    const existing = document.getElementById('history-side-panel');
+    if (existing) {
+      console.log('[History] Removing existing sidebar');
+      // Remove the click listener first
+      if (existing._clickListener) {
+        document.removeEventListener('click', existing._clickListener);
+        console.log('[History] Removed old click listener');
+      }
+      existing.remove();
+    }
+
+    // Create sidebar with exact same structure as content.js
+    const sidePanel = document.createElement('div');
+    sidePanel.id = 'history-side-panel';
+    sidePanel.className = 'dust-side-panel';
+
+    console.log('[History] Created sidebar element');
+
+    // Apply inline styles (let CSS handle right and opacity for animation)
+    sidePanel.style.cssText = `
+      position: fixed !important;
+      top: 0 !important;
+      width: 500px !important;
+      height: 100vh !important;
+      background-color: #ffffff !important;
+      box-shadow: -2px 0 24px rgba(0, 0, 0, 0.12) !important;
+      z-index: 2147483647 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      transition: width 0.3s ease-in-out !important;
+    `;
+
+    console.log('[History] Applied styles to sidebar');
+
+    // Create header
+    console.log('[History] Creating header...');
+    const header = createSidebarHeader();
+
+    // Create content area
+    console.log('[History] Creating content...');
+    const content = createSidebarContent(entry);
+
+    // Create footer
+    console.log('[History] Creating footer...');
+    const footer = createSidebarFooter(entry);
+
+    sidePanel.appendChild(header);
+    sidePanel.appendChild(content);
+    sidePanel.appendChild(footer);
+
+    console.log('[History] Appending sidebar to body...');
+    document.body.appendChild(sidePanel);
+    console.log('[History] Sidebar appended to body');
+
+    // Trigger animation
+    setTimeout(() => {
+      console.log('[History] Triggering slide-in animation...');
+      sidePanel.classList.add('dust-panel-open');
+      console.log('[History] Animation triggered, classes:', sidePanel.className);
+    }, 10);
+
+    // Add click-outside listener
+    console.log('[History] Setting up click-outside listener...');
+    setupClickOutsideListener(sidePanel);
+  }
+
+  /**
+   * Create sidebar header
+   */
+  function createSidebarHeader() {
+    const header = document.createElement('div');
+    header.style.cssText = `
+      padding: 20px !important;
+      background-color: #0b465e !important;
+      border-bottom: 1px solid #e0e0e0 !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+    `;
+
+    // Title with DD icon
+    const title = document.createElement('div');
+    title.style.cssText = 'display: flex !important; align-items: center !important; gap: 10px !important;';
+
+    // Create DD icon image
+    const icon = document.createElement('img');
+    icon.src = chrome.runtime.getURL('icon/favicon-32x32-1.png');
+    icon.alt = 'DataDome';
+    icon.style.cssText = `
+      width: 20px !important;
+      height: 20px !important;
+      display: block !important;
+    `;
+
+    // Create title text
+    const titleText = document.createElement('h2');
+    titleText.textContent = 'Dust AI Assistant';
+    titleText.style.cssText = `
+      margin: 0 !important;
+      font-size: 18px !important;
+      font-weight: 600 !important;
+      color: white !important;
+    `;
+
+    title.appendChild(icon);
+    title.appendChild(titleText);
+
+    // Buttons container
+    const buttons = document.createElement('div');
+    buttons.style.cssText = 'display: flex !important; gap: 8px !important;';
+
+    // Expand button
+    const expandBtn = document.createElement('button');
+    expandBtn.innerHTML = '⇔';
+    expandBtn.title = 'Expand panel';
+    expandBtn.style.cssText = `
+      background: none !important;
+      border: none !important;
+      color: white !important;
+      font-size: 22px !important;
+      cursor: pointer !important;
+      padding: 6px !important;
+      width: 32px !important;
+      height: 32px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      border-radius: 4px !important;
+      transition: background-color 0.2s !important;
+    `;
+
+    // Track expanded state
+    let isExpanded = false;
+
+    expandBtn.addEventListener('click', () => {
+      const sidePanel = document.getElementById('history-side-panel');
+      if (!sidePanel) return;
+
+      isExpanded = !isExpanded;
+
+      if (isExpanded) {
+        sidePanel.style.width = '800px';
+        expandBtn.innerHTML = '⇄';
+        expandBtn.title = 'Collapse panel';
+      } else {
+        sidePanel.style.width = '500px';
+        expandBtn.innerHTML = '⇔';
+        expandBtn.title = 'Expand panel';
+      }
+    });
+
+    expandBtn.addEventListener('mouseover', () => {
+      expandBtn.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
+    });
+    expandBtn.addEventListener('mouseout', () => {
+      expandBtn.style.backgroundColor = 'transparent';
+    });
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '✕';
+    closeBtn.title = 'Close';
+    closeBtn.style.cssText = `
+      background: none !important;
+      border: none !important;
+      color: white !important;
+      font-size: 22px !important;
+      cursor: pointer !important;
+      padding: 6px !important;
+      border-radius: 4px !important;
+      width: 32px !important;
+      height: 32px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: background-color 0.2s !important;
+    `;
+    closeBtn.addEventListener('click', closeHistorySidePanel);
+    closeBtn.addEventListener('mouseover', () => {
+      closeBtn.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
+    });
+    closeBtn.addEventListener('mouseout', () => {
+      closeBtn.style.backgroundColor = 'transparent';
+    });
+
+    buttons.appendChild(expandBtn);
+    buttons.appendChild(closeBtn);
+    header.appendChild(title);
+    header.appendChild(buttons);
+
+    return header;
+  }
+
+  /**
+   * Create sidebar content area
+   */
+  function createSidebarContent(entry) {
+    const content = document.createElement('div');
+    content.id = 'history-panel-content';
+    content.style.cssText = `
+      flex: 1 !important;
+      overflow-y: auto !important;
+      padding: 30px !important;
+      background-color: rgba(82, 140, 142, 0.03) !important;
+      font-size: 16px !important;
+      line-height: 1.8 !important;
+    `;
+
+    // Format answer (same as displayResponse in content.js)
+    const cleanAnswer = entry.answer
+      .replace(/:cite\[[^\]]+\]/g, '')
+      .replace(/\[:cite:[^\]]+\]/g, '');
+
+    let html = '';
+    if (typeof marked !== 'undefined' && marked.parse) {
+      html = marked.parse(cleanAnswer);
+    } else if (typeof marked !== 'undefined') {
+      html = marked(cleanAnswer);
+    } else {
+      html = `<pre>${escapeHtml(cleanAnswer)}</pre>`;
+    }
+
+    // Add links section
+    const linksSection = Formatting.createLinksSection(entry.links || []);
+
+    // Add Open in Dust button
+    const openInDustButton = createOpenInDustButton(entry.workspaceId, entry.conversationId);
+
+    content.innerHTML = `
+      <div class="dust-response" style="color: #0b465e; line-height: 1.8;">
+        ${html}
+        ${linksSection}
+        ${openInDustButton}
+      </div>
+    `;
+
+    return content;
+  }
+
+  /**
+   * Create sidebar footer
+   */
+  function createSidebarFooter(entry) {
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+      padding: 15px 20px !important;
+      border-top: 1px solid #e0e0e0 !important;
+      background-color: rgba(82, 140, 142, 0.05) !important;
+      display: flex !important;
+      gap: 10px !important;
+    `;
+
+    // Copy Answer button
+    const copyBtn = document.createElement('button');
+    copyBtn.innerHTML = '📋 Copy Answer';
+    copyBtn.className = 'dust-btn dust-btn-secondary';
+    copyBtn.style.cssText = `
+      flex: 1 !important;
+      padding: 10px 15px !important;
+      background-color: #528c8e !important;
+      color: white !important;
+      border: none !important;
+      border-radius: 6px !important;
+      cursor: pointer !important;
+      font-size: 13px !important;
+      font-weight: 500 !important;
+      transition: background-color 0.2s !important;
+    `;
+    copyBtn.addEventListener('click', async () => {
+      await Formatting.copyAnswerText(entry.answer);
+    });
+    copyBtn.addEventListener('mouseover', () => {
+      copyBtn.style.backgroundColor = '#6a9c9e';
+    });
+    copyBtn.addEventListener('mouseout', () => {
+      copyBtn.style.backgroundColor = '#528c8e';
+    });
+
+    // Copy Links button
+    const copyLinksBtn = document.createElement('button');
+    copyLinksBtn.innerHTML = '🔗 Copy Links';
+    copyLinksBtn.className = 'dust-btn dust-btn-secondary';
+    copyLinksBtn.style.cssText = copyBtn.style.cssText;
+    if (!entry.links || entry.links.length === 0) {
+      copyLinksBtn.disabled = true;
+      copyLinksBtn.style.opacity = '0.6';
+      copyLinksBtn.style.cursor = 'not-allowed';
+    } else {
+      copyLinksBtn.addEventListener('click', async () => {
+        await Formatting.copyLinksText(entry.links || []);
+      });
+      copyLinksBtn.addEventListener('mouseover', () => {
+        copyLinksBtn.style.backgroundColor = '#6a9c9e';
+      });
+      copyLinksBtn.addEventListener('mouseout', () => {
+        copyLinksBtn.style.backgroundColor = '#528c8e';
+      });
+    }
+
+    footer.appendChild(copyBtn);
+    footer.appendChild(copyLinksBtn);
+
+    return footer;
+  }
+
+  /**
+   * Setup click-outside listener to close sidebar
+   */
+  function setupClickOutsideListener(sidePanel) {
+    const clickOutside = (event) => {
+      console.log('[History] Click detected, target:', event.target);
+
+      // Ignore clicks on the sidebar itself
+      if (sidePanel && !sidePanel.contains(event.target)) {
+        console.log('[History] Click is outside sidebar');
+
+        // Also ignore clicks on any buttons or the table
+        const isButton = event.target.closest('button');
+        const isTableRow = event.target.closest('tr');
+
+        console.log('[History] isButton:', isButton, 'isTableRow:', isTableRow);
+
+        if (!isButton && !isTableRow) {
+          console.log('[History] Closing sidebar due to outside click');
+          closeHistorySidePanel();
+        } else {
+          console.log('[History] Ignoring click on button or table');
+        }
+      } else {
+        console.log('[History] Click is inside sidebar, ignoring');
+      }
+    };
+
+    // Delay adding the listener to prevent immediate closing from the opening click
+    setTimeout(() => {
+      console.log('[History] Adding click-outside listener');
+      document.addEventListener('click', clickOutside);
+      sidePanel._clickListener = clickOutside; // Store for cleanup
+    }, 500);
+  }
+
+  /**
+   * Close history sidebar
+   */
+  function closeHistorySidePanel() {
+    const sidePanel = document.getElementById('history-side-panel');
+    if (!sidePanel) return;
+
+    console.log('[History] Closing sidebar with animation...');
+
+    // Remove listener
+    if (sidePanel._clickListener) {
+      document.removeEventListener('click', sidePanel._clickListener);
+    }
+
+    // Remove open class (triggers slide-out animation)
+    sidePanel.classList.remove('dust-panel-open');
+
+    // Remove from DOM after animation
+    setTimeout(() => {
+      if (sidePanel && sidePanel.parentNode) {
+        sidePanel.parentNode.removeChild(sidePanel);
+        console.log('[History] Sidebar removed from DOM');
+      }
+    }, 300);
   }
 
   /**

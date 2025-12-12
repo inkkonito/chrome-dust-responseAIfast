@@ -542,6 +542,29 @@ pre {
   background-color: #ecf0f1;
 }
 
+/* Header actions group for buttons */
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Make icon button work in header context */
+.popup-header .icon-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  color: white;
+}
+
+.popup-header .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
 .status-message {
   padding: 10px 20px;
   font-size: 13px;
@@ -566,11 +589,11 @@ pre {
 }
 
 .history-header {
-  padding: 15px 20px 10px;
+  padding: 5px 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #e0e0e0;
+  border: none;
 }
 
 .history-header h2 {

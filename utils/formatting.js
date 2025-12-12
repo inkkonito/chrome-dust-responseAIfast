@@ -142,6 +142,135 @@ const Formatting = {
   },
 
   /**
+   * Convert markdown to HTML with inline styles
+   * @param {string} markdown - Markdown text
+   * @returns {string} HTML with inline styles
+   */
+  markdownToHTML(markdown) {
+    return markdown
+      // Remove citation markers first
+      .replace(/:cite\[[^\]]+\]/g, '')
+      .replace(/\[:cite:[^\]]+\]/g, '')
+      // Headers
+      .replace(/### (.*?)(\n|$)/g, '<h3 style="font-size: 1.2em; font-weight: 600; color: #0b465e; margin: 16px 0 8px 0;">$1</h3>')
+      .replace(/## (.*?)(\n|$)/g, '<h2 style="font-size: 1.4em; font-weight: 600; color: #0b465e; margin: 16px 0 8px 0;">$1</h2>')
+      .replace(/# (.*?)(\n|$)/g, '<h1 style="font-size: 1.6em; font-weight: 600; color: #0b465e; margin: 16px 0 8px 0;">$1</h1>')
+      // Bold (must come before italic to avoid conflicts)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong style="font-weight: 600;">$1</strong>')
+      // Italic
+      .replace(/\*([^*]+)\*/g, '<em style="font-style: italic;">$1</em>')
+      .replace(/_([^_]+)_/g, '<em style="font-style: italic;">$1</em>')
+      // Strikethrough
+      .replace(/~~([^~]+)~~/g, '<del style="text-decoration: line-through;">$1</del>')
+      // Inline code
+      .replace(/`([^`]+)`/g, '<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 0.9em;">$1</code>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #528c8e; text-decoration: underline;">$1</a>')
+      // Line breaks
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>')
+      .trim();
+  },
+
+  /**
+   * Copy answer text with rich HTML formatting
+   * Preserves bold, italic, links, code when pasting into Gmail/email
+   * @param {string} text - Raw answer text (markdown format)
+   * @param {string} successMessage - Toast message on success
+   * @returns {Promise<boolean>}
+   */
+  async copyAnswerText(text, successMessage = 'Answer copied to clipboard!') {
+    try {
+      // Remove "Key Points for Your Conversation:" section
+      const filteredText = text.replace(
+        /^#{2,3}\s*Key Points for Your Conversation:.*?\n(?:[•\-\*]\s+.*?\n)+\n*/gim,
+        ''
+      );
+
+      // Generate HTML version with formatting
+      const htmlContent = Formatting.markdownToHTML(filteredText);
+
+      // Generate plain text version (fallback for apps that don't support HTML)
+      const plainText = filteredText
+        // Remove citation markers
+        .replace(/:cite\[[^\]]+\]/g, '')
+        .replace(/\[:cite:[^\]]+\]/g, '')
+        // Strip markdown formatting
+        .replace(/\*\*([^*]+)\*\*/g, '$1')        // **bold** → bold
+        .replace(/\*([^*]+)\*/g, '$1')            // *italic* → italic
+        .replace(/_([^_]+)_/g, '$1')              // _italic_ → italic
+        .replace(/~~([^~]+)~~/g, '$1')            // ~~strike~~ → strike
+        .replace(/`([^`]+)`/g, '$1')              // `code` → code
+        // Convert markdown links to inline format
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+        // Clean up whitespace
+        .replace(/\n\s*\n\s*\n/g, '\n\n')
+        .trim();
+
+      // Create blobs for both HTML and plain text
+      const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+      const plainBlob = new Blob([plainText], { type: 'text/plain' });
+
+      // Write to clipboard with both formats
+      const clipboardItem = new ClipboardItem({
+        'text/html': htmlBlob,
+        'text/plain': plainBlob
+      });
+
+      await navigator.clipboard.write([clipboardItem]);
+
+      if (typeof Toast !== 'undefined') {
+        Toast.success(successMessage);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to copy answer:', error);
+      if (typeof Toast !== 'undefined') {
+        Toast.error('Failed to copy to clipboard');
+      }
+      return false;
+    }
+  },
+
+  /**
+   * Copy structured links with header
+   * @param {Array} links - Array of {text, uri} objects
+   * @param {string} successMessage - Toast message on success
+   * @returns {Promise<boolean>}
+   */
+  async copyLinksText(links, successMessage = 'Links copied to clipboard!') {
+    try {
+      if (!links || links.length === 0) {
+        if (typeof Toast !== 'undefined') {
+          Toast.warning('No links to copy');
+        }
+        return false;
+      }
+
+      const header = '🔗 Links\n\n';
+      const linksText = links
+        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+        .join('\n');
+      const fullText = header + linksText;
+
+      await navigator.clipboard.writeText(fullText);
+
+      if (typeof Toast !== 'undefined') {
+        Toast.success(successMessage);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to copy links:', error);
+      if (typeof Toast !== 'undefined') {
+        Toast.error('Failed to copy to clipboard');
+      }
+      return false;
+    }
+  },
+
+  /**
    * Render math expressions using KaTeX
    * @param {HTMLElement} container - Container element
    */
@@ -283,7 +412,7 @@ const Formatting = {
       const safeUri = this.escapeHtml(link.uri || '');
       const safeText = this.escapeHtml(link.text || link.uri || 'Link');
 
-      return `<li style="margin-bottom: 8px;"><a href="${safeUri}" target="_blank" rel="noopener noreferrer" style="color: #528c8e; text-decoration: none; word-break: break-word;">${safeText}</a></li>`;
+      return `<li style="margin-bottom: 0;"><a href="${safeUri}" target="_blank" rel="noopener noreferrer" style="color: #528c8e; text-decoration: none; word-break: break-word;">${safeText}</a></li>`;
     }).join('');
 
     return `<div style="margin-top: 32px; padding-top: 24px; border-top: 2px solid rgba(82, 140, 142, 0.3);"><h3 style="font-size: 18px; font-weight: 600; color: #0b465e; margin-bottom: 16px;">🔗 Links</h3><ul style="margin: 0; padding-left: 24px; list-style-type: disc;">${linksHtml}</ul></div>`;

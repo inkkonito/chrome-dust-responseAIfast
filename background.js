@@ -74,6 +74,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'deleteHistoryEntries') {
+    HistoryStorage.deleteEntries(request.ids)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message, deletedCount: 0, failedIds: request.ids }));
+    return true;
+  }
+
   if (request.action === 'clearHistory') {
     HistoryStorage.clearHistory()
       .then(() => sendResponse({ success: true }))

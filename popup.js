@@ -239,8 +239,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const entry = response.data.find(e => e.id === entryId);
 
         if (entry && entry.answer) {
-          await navigator.clipboard.writeText(entry.answer);
-          showStatus('Answer copied to clipboard!', 'success');
+          // Use centralized utility
+          await Formatting.copyAnswerText(entry.answer);
         } else {
           showStatus('No answer to copy', 'error');
         }
@@ -264,13 +264,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const entry = response.data.find(e => e.id === entryId);
 
         if (entry && entry.links && entry.links.length > 0) {
-          const header = '🔗 Links\n\n';
-          const linksText = entry.links
-            .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-            .join('\n');
-          const fullText = header + linksText;
-          await navigator.clipboard.writeText(fullText);
-          showStatus('Links copied to clipboard!', 'success');
+          // Use centralized utility
+          await Formatting.copyLinksText(entry.links);
         } else {
           showStatus('No links to copy', 'error');
         }
@@ -286,7 +281,21 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   async function viewFullEntry(entryId) {
     try {
-      // Find entry in current history data
+      // Get active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+      if (!tab || !tab.id) {
+        showStatus('No active tab found', 'error');
+        return;
+      }
+
+      // Check if URL is accessible
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+        showStatus('Cannot access browser pages', 'error');
+        return;
+      }
+
+      // Fetch entry from history
       const response = await chrome.runtime.sendMessage({ action: 'getHistory' });
 
       if (!response.success) {
@@ -301,53 +310,39 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
 
-      // Remove citation markers
-      const cleanAnswer = entry.answer
-        .replace(/:cite\[[^\]]+\]/g, '')
-        .replace(/\[:cite:[^\]]+\]/g, '');
-
-      currentModalAnswer = cleanAnswer;
-
-      // Get structured links from history entry (stored in links field)
-      const structuredLinks = entry.links || [];
-      currentModalLinks = structuredLinks;
-
       // Get workspace ID from config
       const config = await chrome.storage.sync.get(['workspaceId']);
-      const openInDustButton = createOpenInDustButton(config.workspaceId, entry.conversationId);
 
-      // Render markdown with LaTeX
+      // Inject content script if needed
       try {
-        let html = '';
-
-        if (typeof marked !== 'undefined' && marked.parse) {
-          html = marked.parse(cleanAnswer);
-        } else if (typeof marked !== 'undefined') {
-          html = marked(cleanAnswer);
-        } else {
-          html = `<pre>${escapeHtml(cleanAnswer)}</pre>`;
-        }
-
-        // Add links section using STRUCTURED links
-        const linksSection = Formatting.createLinksSection(structuredLinks);
-
-        modalBody.innerHTML = `<div class="response-content">${html}${linksSection}${openInDustButton}</div>`;
-
-        // Add copy event listener to preserve link HTML when copying
-        modalBody.removeEventListener('copy', handleCopyWithLinks);
-        modalBody.addEventListener('copy', handleCopyWithLinks);
-
-        // Render math if KaTeX is available
-        if (typeof katex !== 'undefined') {
-          renderMath(modalBody);
-        }
+        await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
       } catch (e) {
-        console.error('Error rendering markdown:', e);
-        modalBody.innerHTML = `<div class="response-content">${escapeHtml(cleanAnswer)}</div>`;
+        // Content script not loaded, inject it
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        });
+        await chrome.scripting.insertCSS({
+          target: { tabId: tab.id },
+          files: ['content.css']
+        });
+        // Wait for injection
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      // Show modal
-      answerModal.classList.add('active');
+      // Send message to content script to display sidebar
+      await chrome.tabs.sendMessage(tab.id, {
+        action: 'displayHistoryEntry',
+        entry: {
+          answer: entry.answer,
+          links: entry.links || [],
+          conversationId: entry.conversationId,
+          workspaceId: config.workspaceId
+        }
+      });
+
+      // Close popup after successfully sending message
+      window.close();
     } catch (error) {
       console.error('Error viewing entry:', error);
       showStatus('Failed to view entry', 'error');
@@ -383,7 +378,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!currentModalAnswer) return;
 
     try {
-      await navigator.clipboard.writeText(currentModalAnswer);
+      // Use centralized utility
+      await Formatting.copyAnswerText(currentModalAnswer);
 
       const originalText = modalCopyBtn.textContent;
       modalCopyBtn.textContent = '✓ Copied!';
@@ -409,12 +405,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     try {
-      const header = '🔗 Links\n\n';
-      const linksText = currentModalLinks
-        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-        .join('\n');
-      const fullText = header + linksText;
-      await navigator.clipboard.writeText(fullText);
+      // Use centralized utility
+      await Formatting.copyLinksText(currentModalLinks);
 
       const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
       const originalText = modalCopyLinksBtn.textContent;

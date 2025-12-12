@@ -9,6 +9,12 @@ let currentAbortController = null;
 // Store current timer interval
 let currentTimerInterval = null;
 
+// Store timer seconds elapsed
+let secondsElapsed = 0;
+
+// Store click outside listener for cleanup
+let clickOutsideListener = null;
+
 // Formatting utilities
 const Formatting = {
   /**
@@ -61,7 +67,7 @@ const Formatting = {
       const safeUri = this.escapeHtml(link.uri || '');
       const safeText = this.escapeHtml(link.text || link.uri || 'Link');
 
-      return `<li style="margin-bottom: 8px;"><a href="${safeUri}" target="_blank" rel="noopener noreferrer" style="color: #528c8e; text-decoration: none; word-break: break-word;">${safeText}</a></li>`;
+      return `<li style="margin-bottom: 0;"><a href="${safeUri}" target="_blank" rel="noopener noreferrer" style="color: #528c8e; text-decoration: none; word-break: break-word;">${safeText}</a></li>`;
     }).join('');
 
     return `<div style="margin-top: 32px; padding-top: 24px; border-top: 2px solid rgba(82, 140, 142, 0.3);"><h3 style="font-size: 18px; font-weight: 600; color: #0b465e; margin-bottom: 16px;">🔗 Links</h3><ul style="margin: 0; padding-left: 24px; list-style-type: disc;">${linksHtml}</ul></div>`;
@@ -167,8 +173,37 @@ if (window.dustContentScriptLoaded) {
       return true;
     }
 
+    if (request.action === 'displayHistoryEntry') {
+      try {
+        displayHistoryEntryInSidebar(request.entry);
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('[Dust] Error displaying history entry:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      return true;
+    }
+
     return false;
   });
+
+/**
+ * Display a history entry in the full sidebar view
+ * @param {Object} entry - History entry with answer, links, conversationId, workspaceId
+ */
+async function displayHistoryEntryInSidebar(entry) {
+  console.log('[Dust] Displaying history entry in sidebar:', entry);
+
+  // Show sidebar if not already open
+  if (!sidePanelOpen) {
+    showSidePanel();
+  }
+
+  // Display the response with all details
+  await displayResponse(entry.answer, entry.links, entry.conversationId);
+
+  console.log('[Dust] History entry displayed in sidebar');
+}
 
 /**
  * Activate text selection mode
@@ -370,9 +405,17 @@ async function handleAskAI(selectedText) {
   console.log('[Dust] handleAskAI called with text:', selectedText.substring(0, 50) + '...');
 
   try {
+    // Clear any existing timer first to prevent multiple timers running
+    if (currentTimerInterval) {
+      clearInterval(currentTimerInterval);
+      currentTimerInterval = null;
+    }
+
+    // Reset timer counter
+    secondsElapsed = 0;
+
     // Show loading state with timer and cancel button
     console.log('[Dust] Setting loading content...');
-    let secondsElapsed = 0;
     updateSidePanelContent(`
       <div class="dust-loading">
         <div class="dust-spinner"></div>
@@ -387,19 +430,26 @@ async function handleAskAI(selectedText) {
       const timerEl = document.getElementById('dust-timer');
       if (timerEl) {
         timerEl.textContent = `${secondsElapsed}s`;
+      } else {
+        // Timer element gone, clear interval
+        if (currentTimerInterval) {
+          clearInterval(currentTimerInterval);
+          currentTimerInterval = null;
+        }
       }
     }, 1000);
 
     // Add cancel button handler
     const cancelBtn = document.getElementById('dust-cancel-btn');
     if (cancelBtn) {
-      cancelBtn.addEventListener('click', () => {
+      cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent click from bubbling to document
         if (currentTimerInterval) {
           clearInterval(currentTimerInterval);
           currentTimerInterval = null;
         }
         Toast.warning('Request cancelled by user');
-        hideSidePanel();
+        closeSidePanel();
         restoreButtonState();
       });
     }
@@ -591,8 +641,15 @@ function showSidePanel() {
     justify-content: space-between !important;
     align-items: center !important;
   `;
+
+  // Get the icon URL using chrome.runtime.getURL for proper extension resource access
+  const iconUrl = chrome.runtime.getURL('icon/favicon-32x32-1.png');
+
   header.innerHTML = `
-    <h2 class="dust-panel-title" style="margin: 0; font-size: 18px; font-weight: 600; color: #ffffff;">Dust AI Response</h2>
+    <h2 class="dust-panel-title" style="margin: 0; font-size: 18px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+      <img src="${iconUrl}" alt="DataDome" style="width: 20px; height: 20px; display: inline-block;">
+      Dust AI Response
+    </h2>
     <div style="display: flex; gap: 8px; align-items: center;">
       <button class="dust-panel-expand" id="dust-panel-expand" style="background: none; border: none; font-size: 22px; cursor: pointer; padding: 6px; color: #ffffff; line-height: 1; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 4px; transition: background 0.2s;" title="Expand panel">⇔</button>
       <button class="dust-panel-close" id="dust-panel-close" style="background: none; border: none; font-size: 22px; cursor: pointer; padding: 6px; color: #ffffff; line-height: 1; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 4px; transition: background 0.2s;" title="Close">✕</button>
@@ -652,11 +709,39 @@ function showSidePanel() {
   const copyLinksBtn = document.getElementById('dust-copy-links-btn');
   const historyBtn = document.getElementById('dust-history-btn');
 
-  if (closeBtn) closeBtn.addEventListener('click', closeSidePanel);
-  if (expandBtn) expandBtn.addEventListener('click', togglePanelWidth);
-  if (copyBtn) copyBtn.addEventListener('click', copyAnswer);
-  if (copyLinksBtn) copyLinksBtn.addEventListener('click', copyLinks);
-  if (historyBtn) historyBtn.addEventListener('click', openHistory);
+  if (closeBtn) closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeSidePanel();
+  });
+  if (expandBtn) expandBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePanelWidth();
+  });
+  if (copyBtn) copyBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    copyAnswer();
+  });
+  if (copyLinksBtn) copyLinksBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    copyLinks();
+  });
+  if (historyBtn) historyBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openHistory();
+  });
+
+  // Add click outside listener to close sidebar
+  clickOutsideListener = (event) => {
+    // Check if click is outside the sidebar
+    if (sidePanel && !sidePanel.contains(event.target)) {
+      closeSidePanel();
+    }
+  };
+
+  // Add listener after a short delay to avoid immediate closing from the button that opened it
+  setTimeout(() => {
+    document.addEventListener('click', clickOutsideListener);
+  }, 100);
 
   sidePanelOpen = true;
 
@@ -702,20 +787,31 @@ function togglePanelWidth() {
 }
 
 /**
- * Close side panel
+ * Close side panel with smooth animation
  */
 function closeSidePanel() {
   if (!sidePanelOpen || !sidePanel) return;
 
+  console.log('[Dust] Closing side panel with animation...');
+
+  // Remove click outside listener
+  if (clickOutsideListener) {
+    document.removeEventListener('click', clickOutsideListener);
+    clickOutsideListener = null;
+  }
+
+  // Trigger closing animation by removing the open class
   sidePanel.classList.remove('dust-panel-open');
 
+  // Wait for animation to complete (300ms) before removing from DOM
   setTimeout(() => {
     if (sidePanel && sidePanel.parentNode) {
       sidePanel.parentNode.removeChild(sidePanel);
+      console.log('[Dust] Side panel removed from DOM');
     }
     sidePanel = null;
     sidePanelOpen = false;
-  }, 300);
+  }, 300); // Match CSS transition duration
 }
 
 /**
@@ -783,10 +879,128 @@ function updateSidePanelContent(html) {
         .dust-btn-secondary:hover {
           background: #d5dbdd;
         }
+        /* Link hover state in answer text */
+        .dust-response a:hover {
+          color: #6a9c9e !important;
+          text-decoration: underline !important;
+        }
       `;
       document.head.appendChild(styleEl);
     }
   }
+}
+
+/**
+ * Inject structured links into answer text as markdown links
+ * Converts plain text mentions to [text](url) format
+ * @param {string} answer - Answer text with plain mentions
+ * @param {Array} links - Structured links [{text, uri}]
+ * @returns {string} Answer with injected markdown links
+ */
+function injectLinksIntoAnswer(answer, links) {
+  if (!links || links.length === 0) return answer;
+
+  console.log('[Dust] Injecting links into answer');
+  console.log('[Dust] Number of links:', links.length);
+  console.log('[Dust] Links:', links);
+
+  let processedAnswer = answer;
+
+  // Sort links by text length (longest first) to avoid partial matches
+  const sortedLinks = [...links].sort((a, b) =>
+    (b.text || b.uri).length - (a.text || a.uri).length
+  );
+
+  sortedLinks.forEach((link, index) => {
+    const linkText = link.text || link.uri;
+    if (!linkText || !link.uri) return;
+
+    console.log(`[Dust] Processing link ${index + 1}:`, { text: linkText, uri: link.uri });
+
+    // Escape special regex characters in the link text
+    const escapedText = linkText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    console.log(`[Dust] Escaped text: "${escapedText}"`);
+
+    // Check if link text exists in answer (for debugging)
+    if (answer.includes(linkText)) {
+      console.log(`[Dust] ✅ Found exact match for: "${linkText}"`);
+    } else {
+      console.log(`[Dust] ❌ No exact match for: "${linkText}"`);
+    }
+
+    // Create regex patterns to match:
+    // 1. Plain text with optional colon and optional parenthetical URL
+    // 2. Not already in markdown link format [text](url)
+
+    // Pattern 1: "Text: (https://...)" - with trailing colon and URL
+    const patternWithColonAndUrl = new RegExp(
+      `(?<!\\[)${escapedText}:\\s*\\(https?:\\/\\/[^)]+\\)`,
+      'g'
+    );
+
+    // Pattern 2: "Text: Any additional text" - with trailing colon and text continuation
+    // This handles cases like "DataDome API Protection: Safeguard APIs..."
+    const patternWithColonAndText = new RegExp(
+      `(?<!\\[)${escapedText}:[^\\n\\[]*?(?=\\n|$)`,
+      'g'
+    );
+
+    // Pattern 3: "Text:" - with trailing colon only (exact match)
+    const patternWithColon = new RegExp(
+      `(?<!\\[)${escapedText}:(?!\\])`,
+      'g'
+    );
+
+    // Pattern 4: "Text" - plain text without colon
+    const patternPlain = new RegExp(
+      `(?<!\\[)${escapedText}(?!\\]\\(|:)`,
+      'g'
+    );
+
+    // Try patterns in order and log matches
+    let replaced = false;
+
+    // Try Pattern 1
+    if (patternWithColonAndUrl.test(processedAnswer)) {
+      console.log(`[Dust] Matched Pattern 1 (with colon and URL) for: "${linkText}"`);
+      processedAnswer = processedAnswer.replace(patternWithColonAndUrl, `[${linkText}](${link.uri})`);
+      replaced = true;
+    }
+    patternWithColonAndUrl.lastIndex = 0; // Reset regex
+
+    // Try Pattern 2 (new pattern for text continuation)
+    if (!replaced && patternWithColonAndText.test(processedAnswer)) {
+      console.log(`[Dust] Matched Pattern 2 (with colon and text) for: "${linkText}"`);
+      processedAnswer = processedAnswer.replace(patternWithColonAndText, `[${linkText}](${link.uri})`);
+      replaced = true;
+    }
+    patternWithColonAndText.lastIndex = 0; // Reset regex
+
+    // Try Pattern 3
+    if (!replaced && patternWithColon.test(processedAnswer)) {
+      console.log(`[Dust] Matched Pattern 3 (with colon only) for: "${linkText}"`);
+      processedAnswer = processedAnswer.replace(patternWithColon, `[${linkText}](${link.uri})`);
+      replaced = true;
+    }
+    patternWithColon.lastIndex = 0; // Reset regex
+
+    // Try Pattern 4
+    if (!replaced && patternPlain.test(processedAnswer)) {
+      console.log(`[Dust] Matched Pattern 4 (plain text) for: "${linkText}"`);
+      processedAnswer = processedAnswer.replace(patternPlain, `[${linkText}](${link.uri})`);
+      replaced = true;
+    }
+
+    if (!replaced) {
+      console.log(`[Dust] ⚠️ No pattern matched for: "${linkText}"`);
+    }
+  });
+
+  console.log('[Dust] Link injection complete');
+  console.log('[Dust] Processed answer preview:', processedAnswer.substring(0, 500));
+
+  return processedAnswer;
 }
 
 /**
@@ -804,12 +1018,17 @@ async function displayResponse(answer, structuredLinks = [], conversationId = nu
   updateCopyLinksButtonState();
 
   try {
+    // Inject structured links into answer text
+    const answerWithLinks = injectLinksIntoAnswer(answer, structuredLinks);
+
     // Enhanced markdown formatting for better readability
-    let formattedAnswer = answer
+    let formattedAnswer = answerWithLinks
       // Remove Dust citation markers like :cite[as7, aqe]
       .replace(/:cite\[[^\]]+\]/g, '')
       // Remove any other common citation patterns
       .replace(/\[:cite:[^\]]+\]/g, '')
+      // Markdown links: [text](url) → <a href="url">text</a> (BEFORE bold/italic to handle nested links)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: #528c8e; text-decoration: underline; font-weight: 500; transition: color 0.2s;">$1</a>')
       // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #0b465e; font-weight: 600;">$1</strong>')
       // Italic
@@ -820,8 +1039,10 @@ async function displayResponse(answer, structuredLinks = [], conversationId = nu
       .replace(/^### (.*$)/gm, '<h3 style="font-size: 20px; font-weight: 600; color: #0b465e; margin-top: 24px; margin-bottom: 12px;">$1</h3>')
       .replace(/^## (.*$)/gm, '<h2 style="font-size: 24px; font-weight: 600; color: #0b465e; margin-top: 28px; margin-bottom: 14px; border-bottom: 2px solid #528c8e; padding-bottom: 8px;">$1</h2>')
       .replace(/^# (.*$)/gm, '<h1 style="font-size: 28px; font-weight: 700; color: #0b465e; margin-top: 32px; margin-bottom: 16px;">$1</h1>')
+      // Remove blank lines between bullet points (before converting to <li>)
+      .replace(/(\* .*)\n\n(\* .*)/g, '$1\n$2')
       // Bullet lists
-      .replace(/^\* (.*$)/gm, '<li style="margin-bottom: 8px; color: #0b465e;">$1</li>')
+      .replace(/^\* (.*$)/gm, '<li style="margin-bottom: 4px; color: #0b465e;">$1</li>')
       .replace(/(<li.*<\/li>\n?)+/g, '<ul style="margin: 16px 0; padding-left: 24px; list-style-type: disc;">$&</ul>')
       // Paragraphs
       .replace(/\n\n/g, '</p><p style="margin-bottom: 16px; color: #0b465e;">')
@@ -872,7 +1093,7 @@ function createOpenInDustButton(workspaceId, conversationId) {
 
   const dustUrl = `https://eu.dust.tt/w/${workspaceId}/conversation/${conversationId}`;
 
-  return `<div style="margin-top: 24px; padding-top: 20px; border-top: 2px solid rgba(82, 140, 142, 0.3);"><a href="${dustUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #528c8e; color: white; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px; transition: background 0.2s;">🌪️ Open in Dust</a></div>`;
+  return `<div style="margin-top: 24px; padding-top: 20px; border-top: 2px solid rgba(82, 140, 142, 0.3); text-align: center;"><a href="${dustUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #528c8e; color: white; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px; transition: background 0.2s;">🌪️ Open in Dust</a></div>`;
 }
 
 /**
@@ -1004,7 +1225,8 @@ function displayErrorWithRetry(errorMessage, originalQuery) {
   // Add retry handler
   const retryBtn = document.getElementById('dust-retry-btn');
   if (retryBtn) {
-    retryBtn.addEventListener('click', () => {
+    retryBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent click from bubbling to document
       handleAskAI(originalQuery); // Retry with same query
     });
   }
@@ -1012,8 +1234,9 @@ function displayErrorWithRetry(errorMessage, originalQuery) {
   // Add close handler
   const closeBtn = document.getElementById('dust-close-btn');
   if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      hideSidePanel();
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent click from bubbling to document
+      closeSidePanel();
       restoreButtonState();
     });
   }
@@ -1030,17 +1253,34 @@ async function copyAnswer() {
     // Clone the content to manipulate it
     const contentClone = content.cloneNode(true);
 
-    // Remove links section and "Open in Dust" button (they have border-top styling)
+    // Remove BOTH "Open in Dust" button AND "Referenced Links" sections
+    // Both have border-top styling
     const sectionsToRemove = contentClone.querySelectorAll('div[style*="border-top"]');
     sectionsToRemove.forEach(section => section.remove());
 
+    // Remove "Key Points for Your Conversation:" sections
+    const headers = contentClone.querySelectorAll('h2, h3');
+    headers.forEach(header => {
+      if (/Key Points for Your Conversation/i.test(header.textContent)) {
+        // Remove following list if present
+        let nextSibling = header.nextElementSibling;
+        if (nextSibling && (nextSibling.tagName === 'UL' || nextSibling.tagName === 'OL')) {
+          nextSibling.remove();
+        }
+        // Remove the header
+        header.remove();
+      }
+    });
+
     const htmlContent = contentClone.innerHTML;
 
-    // Create Google Sheets-friendly plain text with proper line breaks
-    // Convert HTML to text while preserving structure
+    // Convert HTML to plain text while preserving markdown formatting
     let plainText = htmlContent
-      // Remove citation markers that might have slipped through
+      // Remove citation markers FIRST
       .replace(/:cite\[[^\]]+\]/g, '')
+      .replace(/\[:cite:[^\]]+\]/g, '')
+      // Convert <a> tags to inline format: <a href="url">text</a> → text (url)
+      .replace(/<a[^>]+href="([^"]*)"[^>]*>([^<]+)<\/a>/gi, '$2 ($1)')
       // Convert headers to text with line breaks
       .replace(/<h[123][^>]*>(.*?)<\/h[123]>/gi, '\n\n$1\n')
       // Convert paragraphs to text with double line breaks
@@ -1054,11 +1294,10 @@ async function copyAnswer() {
       .replace(/<\/li>/gi, '\n')
       .replace(/<\/?ul[^>]*>/gi, '\n')
       .replace(/<\/?ol[^>]*>/gi, '\n')
-      // Remove bold/italic tags but keep text
-      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '$1')
-      .replace(/<em[^>]*>(.*?)<\/em>/gi, '$1')
-      // Remove code tag but keep text
-      .replace(/<code[^>]*>(.*?)<\/code>/gi, '$1')
+      // Strip HTML bold/italic/code tags (convert to plain text, no markdown)
+      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '$1')  // <strong> → text (not **text**)
+      .replace(/<em[^>]*>(.*?)<\/em>/gi, '$1')          // <em> → text (not *text*)
+      .replace(/<code[^>]*>(.*?)<\/code>/gi, '$1')      // <code> → text (not `text`)
       // Remove all remaining HTML tags
       .replace(/<[^>]+>/g, '')
       // Decode HTML entities
@@ -1067,13 +1306,21 @@ async function copyAnswer() {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
       // Clean up excessive whitespace
       .replace(/\n\s*\n\s*\n/g, '\n\n')
       .trim();
 
-    // Copy to clipboard
-    await navigator.clipboard.writeText(plainText);
-    console.log('[Dust] Copied answer text only (without links)');
+    // Copy both HTML and plain text to clipboard (rich text formatting)
+    const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+    const plainBlob = new Blob([plainText], { type: 'text/plain' });
+
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': htmlBlob,
+      'text/plain': plainBlob
+    })]);
+
+    console.log('[Dust] Copied answer with rich text formatting');
 
     // Show feedback
     const copyBtn = document.getElementById('dust-copy-btn');
@@ -1116,23 +1363,17 @@ function updateCopyLinksButtonState() {
  */
 async function copyLinks() {
   if (!currentLinks || currentLinks.length === 0) {
-    alert('No links to copy');
+    if (typeof Toast !== 'undefined') {
+      Toast.warning('No links to copy');
+    }
     return;
   }
 
   try {
-    // Format links with title and bullet points: Title - URL
-    const header = '🔗 Links\n\n';
-    const linksText = currentLinks
-      .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-      .join('\n');
-    const fullText = header + linksText;
+    // Use centralized utility
+    await Formatting.copyLinksText(currentLinks);
 
-    // Copy to clipboard
-    await navigator.clipboard.writeText(fullText);
-    console.log('[Dust] Copied links with title and bullet points');
-
-    // Show feedback
+    // Update button state
     const copyLinksBtn = document.getElementById('dust-copy-links-btn');
     const originalText = copyLinksBtn.textContent;
     copyLinksBtn.textContent = '✓ Copied!';
@@ -1144,7 +1385,6 @@ async function copyLinks() {
     }, 2000);
   } catch (err) {
     console.error('[Dust] Failed to copy links:', err);
-    alert('Failed to copy links to clipboard');
   }
 }
 

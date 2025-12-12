@@ -137,12 +137,14 @@
   z-index: 2147483647;
   display: flex;
   flex-direction: column;
-  transition: right 0.3s ease-out;
+  transition: right 0.3s ease-in-out, opacity 0.3s ease-in-out;
+  opacity: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .dust-side-panel.dust-panel-open {
   right: 0;
+  opacity: 1;
 }
 
 /* Panel Header */
@@ -306,7 +308,14 @@
 }
 
 .dust-response li {
-  margin-bottom: 6px;
+  margin-bottom: 2px;
+  line-height: 1.3;
+}
+
+/* Compact spacing for links section specifically */
+.dust-response ul li {
+  margin-bottom: 2px;
+  line-height: 1.3;
 }
 
 .dust-response blockquote {
