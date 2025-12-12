@@ -336,9 +336,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Reload history
       await loadHistory();
+
+      // Show success toast
+      Toast.success(`Successfully deleted ${count} ${count === 1 ? 'entry' : 'entries'}`);
     } catch (error) {
       console.error('Error deleting entries:', error);
-      alert('Failed to delete some entries');
+      Toast.error('Failed to delete some entries');
     }
   }
 
@@ -423,7 +426,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const entry = allHistory.find(e => e.id === entryId);
 
     if (!entry || !entry.answer) {
-      alert('No answer available');
+      Toast.warning('No answer available');
       return;
     }
 
@@ -575,21 +578,16 @@ document.addEventListener('DOMContentLoaded', function() {
   async function copyModalAnswer() {
     if (!currentModalAnswer) return;
 
-    try {
-      await navigator.clipboard.writeText(currentModalAnswer);
+    await Formatting.copyToClipboard(currentModalAnswer, 'Answer copied to clipboard!');
 
-      const originalText = modalCopyBtn.textContent;
-      modalCopyBtn.textContent = '✓ Copied!';
-      modalCopyBtn.disabled = true;
+    const originalText = modalCopyBtn.textContent;
+    modalCopyBtn.textContent = '✓ Copied!';
+    modalCopyBtn.disabled = true;
 
-      setTimeout(() => {
-        modalCopyBtn.textContent = originalText;
-        modalCopyBtn.disabled = false;
-      }, 2000);
-    } catch (error) {
-      console.error('Error copying:', error);
-      alert('Failed to copy to clipboard');
-    }
+    setTimeout(() => {
+      modalCopyBtn.textContent = originalText;
+      modalCopyBtn.disabled = false;
+    }, 2000);
   }
 
   /**
@@ -597,31 +595,26 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   async function copyModalLinks() {
     if (!currentModalLinks || currentModalLinks.length === 0) {
-      alert('No links to copy');
+      Toast.warning('No links to copy');
       return;
     }
 
-    try {
-      const header = '🔗 Links\n\n';
-      const linksText = currentModalLinks
-        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-        .join('\n');
-      const fullText = header + linksText;
-      await navigator.clipboard.writeText(fullText);
+    const header = '🔗 Links\n\n';
+    const linksText = currentModalLinks
+      .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+      .join('\n');
+    const fullText = header + linksText;
+    await Formatting.copyToClipboard(fullText, 'Links copied to clipboard!');
 
-      const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
-      const originalText = modalCopyLinksBtn.textContent;
-      modalCopyLinksBtn.textContent = '✓ Copied!';
-      modalCopyLinksBtn.disabled = true;
+    const modalCopyLinksBtn = document.getElementById('modalCopyLinksBtn');
+    const originalText = modalCopyLinksBtn.textContent;
+    modalCopyLinksBtn.textContent = '✓ Copied!';
+    modalCopyLinksBtn.disabled = true;
 
-      setTimeout(() => {
-        modalCopyLinksBtn.textContent = originalText;
-        modalCopyLinksBtn.disabled = false;
-      }, 2000);
-    } catch (error) {
-      console.error('Error copying links:', error);
-      alert('Failed to copy links to clipboard');
-    }
+    setTimeout(() => {
+      modalCopyLinksBtn.textContent = originalText;
+      modalCopyLinksBtn.disabled = false;
+    }, 2000);
   }
 
   /**
@@ -631,17 +624,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const entry = allHistory.find(e => e.id === entryId);
 
     if (!entry || !entry.answer) {
-      alert('No answer to copy');
+      Toast.warning('No answer to copy');
       return;
     }
 
-    try {
-      await navigator.clipboard.writeText(entry.answer);
-      alert('Answer copied to clipboard!');
-    } catch (error) {
-      console.error('Error copying:', error);
-      alert('Failed to copy to clipboard');
-    }
+    await Formatting.copyToClipboard(entry.answer, 'Answer copied to clipboard!');
   }
 
   /**
@@ -651,22 +638,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const entry = allHistory.find(e => e.id === entryId);
 
     if (!entry || !entry.links || entry.links.length === 0) {
-      alert('No links to copy');
+      Toast.warning('No links to copy');
       return;
     }
 
-    try {
-      const header = '🔗 Links\n\n';
-      const linksText = entry.links
-        .map(link => `• ${link.text || link.uri} - ${link.uri}`)
-        .join('\n');
-      const fullText = header + linksText;
-      await navigator.clipboard.writeText(fullText);
-      alert('Links copied to clipboard!');
-    } catch (error) {
-      console.error('Error copying links:', error);
-      alert('Failed to copy links to clipboard');
-    }
+    const header = '🔗 Links\n\n';
+    const linksText = entry.links
+      .map(link => `• ${link.text || link.uri} - ${link.uri}`)
+      .join('\n');
+    const fullText = header + linksText;
+    await Formatting.copyToClipboard(fullText, 'Links copied to clipboard!');
   }
 
   /**
@@ -686,12 +667,13 @@ document.addEventListener('DOMContentLoaded', function() {
       if (response.success) {
         // Reload history
         await loadHistory();
+        Toast.success('Entry deleted successfully');
       } else {
         throw new Error('Failed to delete entry');
       }
     } catch (error) {
       console.error('Error deleting entry:', error);
-      alert('Failed to delete entry');
+      Toast.error('Failed to delete entry');
     }
   }
 

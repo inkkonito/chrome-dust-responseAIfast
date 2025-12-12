@@ -2,7 +2,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // DOM elements
   const selectTextBtn = document.getElementById('selectTextBtn');
   const settingsBtn = document.getElementById('settingsBtn');
-  const refreshBtn = document.getElementById('refreshBtn');
   const viewAllBtn = document.getElementById('viewAllBtn');
   const historyList = document.getElementById('historyList');
   const loadingState = document.getElementById('loadingState');
@@ -25,7 +24,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // Event listeners
   selectTextBtn.addEventListener('click', handleSelectText);
   settingsBtn.addEventListener('click', () => chrome.tabs.create({ url: 'setup.html' }));
-  refreshBtn.addEventListener('click', loadHistory);
   viewAllBtn.addEventListener('click', () => chrome.tabs.create({ url: 'history.html' }));
 
   // Modal event listeners

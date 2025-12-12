@@ -10,7 +10,10 @@
   <div class="popup-container">
     <!-- Header -->
     <div class="popup-header">
-      <h1>Dust AI Assistant</h1>
+      <h1>
+        <img src="icon/favicon-32x32-1.png" alt="DataDome" class="header-logo">
+        Dust AI Assistant
+      </h1>
       <button id="selectTextBtn" class="btn btn-primary">✨ Select Text</button>
     </div>
 
@@ -23,7 +26,6 @@
         <h2>Recent Queries</h2>
         <div class="history-actions">
           <button id="settingsBtn" class="icon-btn" title="Settings">⚙️</button>
-          <button id="refreshBtn" class="icon-btn" title="Refresh">🔄</button>
         </div>
       </div>
 
@@ -70,6 +72,8 @@
 
   <script src="marked.min.js"></script>
   <script src="katex.min.js"></script>
+  <script src="utils/toast.js"></script>
+  <script src="utils/response.js"></script>
   <script src="utils/formatting.js"></script>
   <script src="popup.js"></script>
 </body>

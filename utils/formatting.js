@@ -120,18 +120,114 @@ const Formatting = {
   },
 
   /**
-   * Copy text to clipboard
+   * Copy text to clipboard with toast notification
    * @param {string} text - Text to copy
+   * @param {string} successMessage - Message to show on success
    * @returns {Promise<boolean>} True if successful
    */
-  async copyToClipboard(text) {
+  async copyToClipboard(text, successMessage = 'Copied to clipboard!') {
     try {
       await navigator.clipboard.writeText(text);
+      if (typeof Toast !== 'undefined') {
+        Toast.success(successMessage);
+      }
       return true;
     } catch (err) {
       console.error('Failed to copy:', err);
+      if (typeof Toast !== 'undefined') {
+        Toast.error('Failed to copy to clipboard');
+      }
       return false;
     }
+  },
+
+  /**
+   * Render math expressions using KaTeX
+   * @param {HTMLElement} container - Container element
+   */
+  renderMath(container) {
+    if (!container || typeof katex === 'undefined') return;
+
+    try {
+      // Render display math ($$...$$)
+      container.querySelectorAll('.math-display').forEach(el => {
+        try {
+          katex.render(el.textContent, el, {
+            displayMode: true,
+            throwOnError: false
+          });
+        } catch (e) {
+          console.warn('KaTeX display render error:', e);
+        }
+      });
+
+      // Render inline math ($...$)
+      container.querySelectorAll('.math-inline').forEach(el => {
+        try {
+          katex.render(el.textContent, el, {
+            displayMode: false,
+            throwOnError: false
+          });
+        } catch (e) {
+          console.warn('KaTeX inline render error:', e);
+        }
+      });
+    } catch (error) {
+      console.error('Math rendering error:', error);
+    }
+  },
+
+  /**
+   * Create "Open in Dust" button
+   * @param {string} conversationId - Conversation ID
+   * @param {string} workspaceId - Workspace ID
+   * @returns {HTMLButtonElement} Button element
+   */
+  createOpenInDustButton(conversationId, workspaceId) {
+    const btn = document.createElement('button');
+    btn.className = 'open-in-dust-btn';
+    btn.textContent = '🔗 Open in Dust';
+    btn.style.cssText = `
+      margin: 10px 0;
+      padding: 8px 16px;
+      background: #528c8e;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+    `;
+    btn.addEventListener('mouseover', () => {
+      btn.style.background = '#6a9c9e';
+    });
+    btn.addEventListener('mouseout', () => {
+      btn.style.background = '#528c8e';
+    });
+    btn.addEventListener('click', () => {
+      const url = `https://dust.tt/w/${workspaceId}/assistant/${conversationId}`;
+      window.open(url, '_blank');
+    });
+    return btn;
+  },
+
+  /**
+   * Format answer with links section
+   * @param {string} answer - Answer text
+   * @param {Array} links - Array of {uri, text} objects
+   * @returns {string} Formatted text with links
+   */
+  formatAnswerWithLinks(answer, links) {
+    if (!links || links.length === 0) {
+      return answer;
+    }
+
+    let combined = answer + '\n\n---\n\n**Referenced Sources:**\n\n';
+    links.forEach((link, index) => {
+      combined += `${index + 1}. [${link.text}](${link.uri})\n`;
+    });
+
+    return combined;
   },
 
   /**

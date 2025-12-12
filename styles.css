@@ -832,3 +832,115 @@ pre {
   border-color: rgba(82, 140, 142, 0.3);
   color: #0b465e;
 }
+
+/* Toast Notifications */
+.dust-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  z-index: 10000;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
+  max-width: 400px;
+  border-left: 4px solid #528c8e;
+}
+
+.dust-toast-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.dust-toast-icon {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.dust-toast-success {
+  border-left-color: #27ae60;
+  background: #f0f9f4;
+}
+
+.dust-toast-success .dust-toast-icon {
+  color: #27ae60;
+}
+
+.dust-toast-error {
+  border-left-color: #e74c3c;
+  background: #fef5f5;
+}
+
+.dust-toast-error .dust-toast-icon {
+  color: #e74c3c;
+}
+
+.dust-toast-info {
+  border-left-color: #3498db;
+  background: #f0f7fd;
+}
+
+.dust-toast-info .dust-toast-icon {
+  color: #3498db;
+}
+
+.dust-toast-warning {
+  border-left-color: #f39c12;
+  background: #fef9f0;
+}
+
+.dust-toast-warning .dust-toast-icon {
+  color: #f39c12;
+}
+
+.dust-toast-message {
+  color: #0b465e;
+  flex: 1;
+}
+
+/* Header Logo Styling */
+.header-logo {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+/* Adjust for larger headers (history page) */
+.history-page-header .header-logo {
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+}
+
+/* Ensure proper alignment in flex containers */
+.popup-header h1,
+.history-page-header h1,
+.setup-header h1 {
+  display: flex;
+  align-items: center;
+}
+
+/* Setup page header styling */
+.setup-header {
+  padding: 25px 30px;
+  background-color: #0b465e;
+  color: white;
+  margin: -20px -20px 30px -20px;
+}
+
+.setup-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: white;
+}

@@ -3,6 +3,12 @@
 // Store current links for copy functionality
 let currentLinks = [];
 
+// Store abort controller for cancellation
+let currentAbortController = null;
+
+// Store current timer interval
+let currentTimerInterval = null;
+
 // Formatting utilities
 const Formatting = {
   /**
@@ -59,6 +65,52 @@ const Formatting = {
     }).join('');
 
     return `<div style="margin-top: 32px; padding-top: 24px; border-top: 2px solid rgba(82, 140, 142, 0.3);"><h3 style="font-size: 18px; font-weight: 600; color: #0b465e; margin-bottom: 16px;">🔗 Links</h3><ul style="margin: 0; padding-left: 24px; list-style-type: disc;">${linksHtml}</ul></div>`;
+  }
+};
+
+// Toast notification utility (inline for content script)
+const Toast = {
+  show(message, type = 'info', duration = 3000) {
+    const existing = document.getElementById('dust-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'dust-toast';
+    toast.className = `dust-toast dust-toast-${type}`;
+
+    const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
+
+    toast.innerHTML = `
+      <span class="dust-toast-icon">${icons[type]}</span>
+      <span class="dust-toast-message">${message}</span>
+    `;
+
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.classList.add('dust-toast-show');
+    });
+
+    setTimeout(() => {
+      toast.classList.remove('dust-toast-show');
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  },
+
+  success(message, duration) {
+    this.show(message, 'success', duration);
+  },
+
+  error(message, duration) {
+    this.show(message, 'error', duration);
+  },
+
+  info(message, duration) {
+    this.show(message, 'info', duration);
+  },
+
+  warning(message, duration) {
+    this.show(message, 'warning', duration);
   }
 };
 
@@ -318,9 +370,40 @@ async function handleAskAI(selectedText) {
   console.log('[Dust] handleAskAI called with text:', selectedText.substring(0, 50) + '...');
 
   try {
-    // Show loading state in side panel (panel should already be created)
+    // Show loading state with timer and cancel button
     console.log('[Dust] Setting loading content...');
-    updateSidePanelContent('<div class="dust-loading"><div class="dust-spinner"></div><p>Asking AI...</p></div>');
+    let secondsElapsed = 0;
+    updateSidePanelContent(`
+      <div class="dust-loading">
+        <div class="dust-spinner"></div>
+        <p>Asking AI... <span id="dust-timer" style="color: #528c8e; font-weight: 600;">0s</span></p>
+        <button id="dust-cancel-btn" class="dust-cancel-btn">Cancel Request</button>
+      </div>
+    `);
+
+    // Start timer
+    currentTimerInterval = setInterval(() => {
+      secondsElapsed++;
+      const timerEl = document.getElementById('dust-timer');
+      if (timerEl) {
+        timerEl.textContent = `${secondsElapsed}s`;
+      }
+    }, 1000);
+
+    // Add cancel button handler
+    const cancelBtn = document.getElementById('dust-cancel-btn');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => {
+        if (currentTimerInterval) {
+          clearInterval(currentTimerInterval);
+          currentTimerInterval = null;
+        }
+        Toast.warning('Request cancelled by user');
+        hideSidePanel();
+        restoreButtonState();
+      });
+    }
+
     console.log('[Dust] Loading content set');
 
     // Get configuration
@@ -349,6 +432,12 @@ async function handleAskAI(selectedText) {
     });
     console.log('[Dust] Response received:', response);
 
+    // Clear timer on response
+    if (currentTimerInterval) {
+      clearInterval(currentTimerInterval);
+      currentTimerInterval = null;
+    }
+
     if (response.success) {
       console.log('[Dust] API Response successful:', response.data);
       const answer = response.answer || extractAnswer(response.data);
@@ -367,7 +456,15 @@ async function handleAskAI(selectedText) {
     }
   } catch (error) {
     console.error('[Dust] Error in handleAskAI:', error);
-    displayError(error.message);
+
+    // Clear timer on error
+    if (currentTimerInterval) {
+      clearInterval(currentTimerInterval);
+      currentTimerInterval = null;
+    }
+
+    // Show error with retry button
+    displayErrorWithRetry(error.message, selectedText);
 
     // Restore button state after error
     restoreButtonState();
@@ -628,6 +725,67 @@ function updateSidePanelContent(html) {
   const content = document.getElementById('dust-panel-content');
   if (content) {
     content.innerHTML = html;
+
+    // Inject additional styles if not already present
+    if (!document.getElementById('dust-additional-styles')) {
+      const styleEl = document.createElement('style');
+      styleEl.id = 'dust-additional-styles';
+      styleEl.textContent = `
+        .dust-cancel-btn {
+          margin-top: 15px;
+          padding: 8px 16px;
+          background: #e74c3c;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 13px;
+          transition: background 0.2s;
+        }
+        .dust-cancel-btn:hover {
+          background: #c0392b;
+        }
+        .dust-error-icon {
+          font-size: 48px;
+          text-align: center;
+          margin-bottom: 16px;
+        }
+        .dust-error-actions {
+          display: flex;
+          gap: 10px;
+          margin-top: 20px;
+        }
+        .dust-btn-primary {
+          padding: 10px 20px;
+          background: #528c8e;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          flex: 1;
+          font-size: 14px;
+          transition: background 0.2s;
+        }
+        .dust-btn-primary:hover {
+          background: #6a9c9e;
+        }
+        .dust-btn-secondary {
+          padding: 10px 20px;
+          background: #ecf0f1;
+          color: #0b465e;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          flex: 1;
+          font-size: 14px;
+          transition: background 0.2s;
+        }
+        .dust-btn-secondary:hover {
+          background: #d5dbdd;
+        }
+      `;
+      document.head.appendChild(styleEl);
+    }
   }
 }
 
@@ -825,6 +983,40 @@ function displayError(errorMessage) {
       <p>${escapeHtml(errorMessage)}</p>
     </div>
   `);
+}
+
+/**
+ * Display error with retry button
+ */
+function displayErrorWithRetry(errorMessage, originalQuery) {
+  updateSidePanelContent(`
+    <div class="dust-error">
+      <div class="dust-error-icon">⚠️</div>
+      <h3>Request Failed</h3>
+      <p>${escapeHtml(errorMessage)}</p>
+      <div class="dust-error-actions">
+        <button id="dust-retry-btn" class="dust-btn-primary">🔄 Retry</button>
+        <button id="dust-close-btn" class="dust-btn-secondary">Close</button>
+      </div>
+    </div>
+  `);
+
+  // Add retry handler
+  const retryBtn = document.getElementById('dust-retry-btn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', () => {
+      handleAskAI(originalQuery); // Retry with same query
+    });
+  }
+
+  // Add close handler
+  const closeBtn = document.getElementById('dust-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      hideSidePanel();
+      restoreButtonState();
+    });
+  }
 }
 
 /**

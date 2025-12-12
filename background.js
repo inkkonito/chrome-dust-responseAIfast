@@ -3,6 +3,7 @@
 
 // Import storage utilities
 importScripts('utils/storage.js');
+importScripts('utils/response.js');
 
 // IMPORTANT: Replace this with your Cloudflare Worker URL after deployment
 // See DEPLOY_PROXY.md for instructions
@@ -25,8 +26,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const duration = Date.now() - startTime;
 
         // Extract answer and structured links from response
-        const answer = extractAnswer(response);
-        const structuredLinks = extractStructuredLinks(response);
+        const answer = Response.extractAnswer(response);
+        const structuredLinks = Response.extractStructuredLinks(response);
 
         // Save to history
         const entry = await saveToHistory(request, response, sender, duration);
@@ -36,7 +37,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           data: response,
           answer: answer,
           links: structuredLinks,
-          conversationId: extractConversationId(response),
+          conversationId: Response.extractConversationId(response),
           historyId: entry.id
         });
       })
@@ -97,28 +98,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function makeApiCall(apiUrl, apiKey, requestBody) {
   console.log('Making API call via proxy:', PROXY_URL);
 
-  // Call the proxy instead of Dust API directly
-  const response = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      apiUrl: apiUrl,
-      apiKey: apiKey,
-      requestBody: requestBody
-    })
-  });
+  // Create AbortController with 30-second timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-  console.log('Proxy response status:', response.status);
+  try {
+    // Call the proxy instead of Dust API directly
+    const response = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        apiUrl: apiUrl,
+        apiKey: apiKey,
+        requestBody: requestBody
+      }),
+      signal: controller.signal
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Proxy error (${response.status}): ${errorText}`);
+    clearTimeout(timeoutId);
+    console.log('Proxy response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Proxy error (${response.status}): ${errorText}`);
+    }
+
+    const responseData = await response.json();
+    return responseData;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    // Provide clear error messages
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out after 30 seconds. Please check your network connection.');
+    }
+    throw error;
   }
-
-  const responseData = await response.json();
-  return responseData;
 }
 
 /**
@@ -132,11 +149,11 @@ async function makeApiCall(apiUrl, apiKey, requestBody) {
  */
 async function saveToHistory(request, response, sender, duration, isError = false) {
   // Extract answer from conversation response
-  const answer = isError ? null : extractAnswer(response);
+  const answer = isError ? null : Response.extractAnswer(response);
   // Extract structured links from conversation response
-  const structuredLinks = isError ? [] : extractStructuredLinks(response);
+  const structuredLinks = isError ? [] : Response.extractStructuredLinks(response);
   // Extract conversation ID from response
-  const conversationId = isError ? null : extractConversationId(response);
+  const conversationId = isError ? null : Response.extractConversationId(response);
 
   // Get current config for agentId and workspaceId
   const config = await chrome.storage.sync.get(null);
@@ -164,103 +181,4 @@ async function saveToHistory(request, response, sender, duration, isError = fals
   return { ...entry, id };
 }
 
-/**
- * Extract answer text from Dust API response
- * @param {Object} data - API response data
- * @returns {string|null} Extracted answer or null
- */
-function extractAnswer(data) {
-  try {
-    if (data.conversation && data.conversation.content && Array.isArray(data.conversation.content)) {
-      // content[0] is the user message, content[1] is the assistant response
-      if (data.conversation.content.length > 1) {
-        const assistantMessage = data.conversation.content[1];
-
-        // Check if it's an array with content
-        if (Array.isArray(assistantMessage) && assistantMessage.length > 0) {
-          return assistantMessage[0].content || null;
-        } else if (assistantMessage && assistantMessage.content) {
-          return assistantMessage.content;
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error extracting answer:', error);
-  }
-
-  return null;
-}
-
-/**
- * Extract structured links from Dust API response
- * @param {Object} data - Full API response data
- * @returns {Array<{uri: string, text: string}>} Array of link objects with uri and text
- */
-function extractStructuredLinks(data) {
-  try {
-    // Navigate to: conversation.content[1][0].actions
-    const assistantMessage = data?.conversation?.content?.[1]?.[0];
-    if (!assistantMessage) {
-      return [];
-    }
-
-    // Check if actions array exists
-    if (!Array.isArray(assistantMessage.actions) || assistantMessage.actions.length === 0) {
-      return [];
-    }
-
-    // Iterate through ALL actions to find resources (they may be in actions[0], actions[1], etc.)
-    const allLinks = [];
-    const seenUris = new Set(); // Track URIs to avoid duplicates
-
-    for (let i = 0; i < assistantMessage.actions.length; i++) {
-      const outputArray = assistantMessage.actions[i]?.output;
-
-      if (!Array.isArray(outputArray) || outputArray.length === 0) {
-        continue; // Skip this action if no output array
-      }
-
-      // Extract uri and text from each output item's resource
-      const links = outputArray
-        .filter(item => item.type === 'resource' && item.resource) // Only resource items
-        .map(item => ({
-          uri: item.resource.uri,  // lowercase 'uri'
-          text: item.resource.text  // lowercase 'text'
-        }))
-        .filter(link => link.uri && link.text) // Only include items with both fields
-        .filter(link => {
-          // Deduplicate by URI
-          if (seenUris.has(link.uri)) {
-            return false;
-          }
-          seenUris.add(link.uri);
-          return true;
-        });
-
-      if (links.length > 0) {
-        console.log(`[Dust] Found ${links.length} unique links in actions[${i}]`);
-        allLinks.push(...links);
-      }
-    }
-
-    console.log('[Dust] Total extracted unique links:', allLinks.length);
-    return allLinks;
-  } catch (error) {
-    console.error('[Dust] Error extracting structured links:', error);
-    return [];
-  }
-}
-
-/**
- * Extract conversation ID from Dust API response
- * @param {Object} data - API response data
- * @returns {string|null} Conversation ID (sId) or null
- */
-function extractConversationId(data) {
-  try {
-    return data?.conversation?.sId || null;
-  } catch (error) {
-    console.error('[Dust] Error extracting conversation ID:', error);
-    return null;
-  }
-}
+// Extract functions are now provided by utils/response.js
